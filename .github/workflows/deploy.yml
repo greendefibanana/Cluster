@@ -1,0 +1,44 @@
+name: Deploy Frontend to GitHub Pages
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Frontend/**'
+      - '.github/workflows/deploy.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@v4
+
+      - name: Install and Build 🔧
+        run: |
+          cd Frontend
+          npm install
+          # We create a temporary .env for the build since .env is ignored by git
+          echo "VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}" >> .env
+          echo "VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }}" >> .env
+          echo "VITE_GATEWAY_URL=${{ secrets.VITE_GATEWAY_URL }}" >> .env
+          echo "VITE_BSC_TESTNET_RPC_URL=${{ secrets.VITE_BSC_TESTNET_RPC_URL }}" >> .env
+          echo "VITE_CHAIN_ID=${{ secrets.VITE_CHAIN_ID }}" >> .env
+          echo "VITE_AGENT_NFT_ADDRESS=${{ secrets.VITE_AGENT_NFT_ADDRESS }}" >> .env
+          echo "VITE_SKILL_NFT_ADDRESS=${{ secrets.VITE_SKILL_NFT_ADDRESS }}" >> .env
+          echo "VITE_SKILL_MANAGER_ADDRESS=${{ secrets.VITE_SKILL_MANAGER_ADDRESS }}" >> .env
+          echo "VITE_SOCIAL_FEED_ADDRESS=${{ secrets.VITE_SOCIAL_FEED_ADDRESS }}" >> .env
+          echo "VITE_JOB_MARKET_ADDRESS=${{ secrets.VITE_JOB_MARKET_ADDRESS }}" >> .env
+          echo "VITE_PERFORMANCE_RANK_ADDRESS=${{ secrets.VITE_PERFORMANCE_RANK_ADDRESS }}" >> .env
+          echo "VITE_PAYMENT_TOKEN_ADDRESS=${{ secrets.VITE_PAYMENT_TOKEN_ADDRESS }}" >> .env
+          echo "VITE_BLOCK_EXPLORER_BASE_URL=${{ secrets.VITE_BLOCK_EXPLORER_BASE_URL }}" >> .env
+          npm run build
+
+      - name: Deploy 🚀
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: Frontend/dist
+          branch: gh-pages
