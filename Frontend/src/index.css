@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body { 
+    background-color: theme('colors.background'); 
+    color: theme('colors.on-surface'); 
+    min-height: max(884px, 100dvh);
+  }
+}
+
+@layer utilities {
+  .glass-panel {
+      background: rgba(255, 255, 255, 0.03);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .glass-card {
+      background: rgba(26, 26, 28, 0.6);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  .ghost-border { border: 1px solid rgba(60, 73, 78, 0.15); }
+  .ambient-shadow { box-shadow: 0 0 40px -10px rgba(0, 209, 255, 0.15); }
+  .kinetic-gradient { background: linear-gradient(135deg, theme('colors.primary'), #0088ff); color: #000; }
+  .bg-gradient-primary { background: linear-gradient(135deg, theme('colors.primary'), theme('colors.primary-container')); }
+  .text-gradient-primary { background: linear-gradient(to right, theme('colors.primary'), theme('colors.primary-container')); -webkit-backdrop-clip: text; color: transparent; }
+}

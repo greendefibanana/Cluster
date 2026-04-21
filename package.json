@@ -1,0 +1,31 @@
+{
+  "name": "tradeable-agent-workforce",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:bsc-testnet": "hardhat run scripts/deploy.js --network bscTestnet",
+    "gateway": "node gateway/server.js",
+    "master-worker": "node scripts/master-worker.js",
+    "setup:viem": "node scripts/viem-setup.js",
+    "job-market": "node scripts/job-market.js",
+    "setup-meme": "node scripts/setup-meme-swarm.js",
+    "launch-meme": "node scripts/launch-meme.js",
+    "autonomous-worker": "node scripts/autonomous-worker.js"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^4.9.6",
+    "@supabase/supabase-js": "^2.104.0",
+    "cors": "^2.8.6",
+    "dotenv": "^16.5.0",
+    "ethers": "^6.15.0",
+    "express": "^5.1.0",
+    "viem": "^2.38.2"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.24.0"
+  }
+}

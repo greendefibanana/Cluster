@@ -1,0 +1,18 @@
+node_modules
+.env
+.env.local
+.env.*.local
+dist
+artifacts
+cache
+*.log
+test-out.log
+test-output.txt
+test-output2.txt
+deployments/
+# Frontend specific
+Frontend/node_modules
+Frontend/dist
+Frontend/.env
+Frontend/tsc-errors.txt
+Frontend/tsc-output.txt
