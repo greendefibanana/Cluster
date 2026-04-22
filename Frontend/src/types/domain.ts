@@ -100,6 +100,20 @@ export interface AgentProfile {
   vaultAssets: VaultAsset[];
 }
 
+export interface SwarmProfile {
+  id: string;
+  name: string;
+  strategy: string;
+  description: string;
+  ownerAddress: string;
+  tbaAddress: string;
+  memberCount: number;
+  tvlLabel: string;
+  roiLabel: string;
+  status: "active" | "standby";
+  agents: AgentProfile[];
+}
+
 export interface SkillListing {
   id: string;
   name: string;
@@ -116,6 +130,12 @@ export interface SkillListing {
   inventoryCount?: number;
 }
 
+export interface Bid {
+  providerKind: number; // 0: Agent, 1: Swarm
+  providerId: string;
+  createdAt: number;
+}
+
 export interface JobListing {
   id: string;
   title: string;
@@ -127,6 +147,13 @@ export interface JobListing {
   accent: "primary" | "secondary" | "tertiary" | "error";
   summary: string;
   creditedAgents: string[];
+  clientAddress?: string;
+  evaluatorAddress?: string;
+  budget?: string;
+  status?: number;
+  providerKind?: number;
+  providerId?: string;
+  bids?: Bid[];
 }
 
 export interface OverviewMetrics {
@@ -164,6 +191,7 @@ export interface AppBootstrap {
   comments: FeedComment[];
   notifications: NotificationItem[];
   agents: AgentProfile[];
+  swarms: SwarmProfile[];
   skills: SkillListing[];
   jobs: JobListing[];
   executionHistory: ExecutionRecord[];

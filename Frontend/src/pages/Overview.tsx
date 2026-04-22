@@ -1,9 +1,42 @@
+import { useState } from "react";
 import { SectionSkeleton } from "../components/StateBlocks";
 import { formatRelativeTime } from "../lib/format";
 import { useAppContext } from "../hooks/useAppContext";
 
 export default function Overview() {
-  const { overview, appStatus } = useAppContext();
+  const { overview, appStatus, depositFunds, wallet, agents, swarms } = useAppContext();
+  const [showDepositToast, setShowDepositToast] = useState(false);
+  const [depositAmount, setDepositAmount] = useState("");
+  const [depositCurrency, setDepositCurrency] = useState<"BNB" | "x402">("BNB");
+  const [depositTargetValue, setDepositTargetValue] = useState("");
+  const [isDepositing, setIsDepositing] = useState(false);
+
+  // Set default target when modal opens or data loads
+  if (showDepositToast && !depositTargetValue) {
+    if (agents.length > 0) {
+      setDepositTargetValue(`agent-${agents[0].id}`);
+    } else if (swarms.length > 0) {
+      setDepositTargetValue(`swarm-${swarms[0].id}`);
+    }
+  }
+
+  const handleSubmitDeposit = async () => {
+    if (!depositAmount || Number(depositAmount) <= 0 || !depositTargetValue) return;
+    
+    const isSwarm = depositTargetValue.startsWith("swarm-");
+    const targetId = depositTargetValue.replace(/^(agent-|swarm-)/, "");
+    
+    setIsDepositing(true);
+    try {
+      await depositFunds(targetId, isSwarm, depositAmount, depositCurrency);
+      setShowDepositToast(false);
+      setDepositAmount("");
+    } catch (error) {
+      console.error("Deposit failed:", error);
+    } finally {
+      setIsDepositing(false);
+    }
+  };
 
   return (
     <main className="flex-grow pt-24 pb-28 md:pb-12 px-4 md:px-8 max-w-7xl mx-auto w-full flex flex-col gap-8 md:flex-row md:items-start relative z-10">
@@ -33,8 +66,12 @@ export default function Overview() {
               </div>
             </div>
             <div className="flex gap-4 w-full md:w-auto mt-4 md:mt-0">
-              <button className="kinetic-gradient text-on-primary font-body font-semibold px-6 py-3 rounded-lg w-full md:w-auto shadow-[0_4px_20px_-4px_rgba(164,230,255,0.4)] hover:shadow-[0_4px_25px_-4px_rgba(164,230,255,0.6)] transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background">
-                Deposit Funds
+              <button 
+                onClick={() => setShowDepositToast(true)}
+                disabled={wallet.status !== "connected"}
+                className="kinetic-gradient text-on-primary font-body font-semibold px-6 py-3 rounded-lg w-full md:w-auto shadow-[0_4px_20px_-4px_rgba(164,230,255,0.4)] hover:shadow-[0_4px_25px_-4px_rgba(164,230,255,0.6)] transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {wallet.status === "connected" ? "Deposit Funds" : "Connect Wallet to Deposit"}
               </button>
             </div>
           </div>
@@ -113,6 +150,132 @@ export default function Overview() {
           View All Logs
         </button>
       </aside>
+
+      {showDepositToast && (
+        <div className="fixed inset-0 z-[100] flex items-end md:items-center justify-center p-4">
+          <button
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm cursor-default"
+            onClick={() => !isDepositing && setShowDepositToast(false)}
+            aria-label="Close deposit modal"
+          />
+          <div className="relative w-full max-w-md bg-surface-container-low rounded-2xl border border-outline-variant/20 shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8 md:slide-in-from-center duration-300">
+            <div className="p-6">
+              <div className="flex justify-between items-start mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-primary/10 text-primary">
+                    <span className="material-symbols-outlined text-2xl" aria-hidden="true">account_balance_wallet</span>
+                  </div>
+                  <div>
+                    <h3 className="font-headline text-xl font-bold text-on-surface">Deposit Funds</h3>
+                    <p className="font-body text-xs text-on-surface-variant uppercase tracking-widest">Agent Vault</p>
+                  </div>
+                </div>
+                <button disabled={isDepositing} onClick={() => setShowDepositToast(false)} className="text-on-surface-variant hover:text-on-surface transition-colors h-10 w-10 rounded-lg flex items-center justify-center disabled:opacity-50">
+                  <span className="material-symbols-outlined" aria-hidden="true">close</span>
+                </button>
+              </div>
+
+              <div className="space-y-4 mb-8">
+                <div>
+                  <label className="block font-label text-sm text-on-surface-variant mb-2">Select Target</label>
+                  <div className="relative">
+                    <select
+                      value={depositTargetValue}
+                      onChange={(e) => setDepositTargetValue(e.target.value)}
+                      className="w-full bg-surface-container-lowest border border-outline-variant/20 rounded-xl py-3 px-3 text-on-surface font-body text-sm focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all appearance-none"
+                      disabled={isDepositing || (agents.length === 0 && swarms.length === 0)}
+                    >
+                      {agents.length === 0 && swarms.length === 0 ? (
+                        <option value="">No targets available</option>
+                      ) : (
+                        <>
+                          {agents.length > 0 && (
+                            <optgroup label="Agents">
+                              {agents.map((agent) => (
+                                <option key={`agent-${agent.id}`} value={`agent-${agent.id}`}>
+                                  {agent.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {swarms.length > 0 && (
+                            <optgroup label="Swarms">
+                              {swarms.map((swarm) => (
+                                <option key={`swarm-${swarm.id}`} value={`swarm-${swarm.id}`}>
+                                  {swarm.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </>
+                      )}
+                    </select>
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant material-symbols-outlined text-sm pointer-events-none">expand_more</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="block font-label text-sm text-on-surface-variant mb-2">Currency</label>
+                  <div className="relative">
+                    <select
+                      value={depositCurrency}
+                      onChange={(e) => setDepositCurrency(e.target.value as "BNB" | "x402")}
+                      className="w-full bg-surface-container-lowest border border-outline-variant/20 rounded-xl py-3 px-3 text-on-surface font-body text-sm focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all appearance-none"
+                      disabled={isDepositing}
+                    >
+                      <option value="BNB">BNB (Native)</option>
+                      <option value="x402">x402 (Payment Token)</option>
+                    </select>
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant material-symbols-outlined text-sm pointer-events-none">expand_more</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="block font-label text-sm text-on-surface-variant mb-2">Amount</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant material-symbols-outlined text-sm">payments</span>
+                    <input
+                      type="number"
+                      value={depositAmount}
+                      onChange={(e) => setDepositAmount(e.target.value)}
+                      min="0.0001"
+                      step="any"
+                      placeholder="0.00"
+                      className="w-full bg-surface-container-lowest border border-outline-variant/20 rounded-xl py-3 pl-10 pr-3 text-on-surface font-body text-sm focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all"
+                      disabled={isDepositing}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowDepositToast(false)}
+                  disabled={isDepositing}
+                  className="flex-1 py-3 rounded-xl border border-outline-variant/20 text-on-surface font-label font-bold hover:bg-surface-container-high transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSubmitDeposit}
+                  disabled={isDepositing || !depositAmount || Number(depositAmount) <= 0}
+                  className="flex-1 py-3 rounded-xl bg-gradient-to-br from-primary to-primary-container text-on-primary font-label font-bold hover:shadow-[0_0_15px_rgba(164,230,255,0.4)] transition-all disabled:opacity-50 disabled:hover:shadow-none flex items-center justify-center gap-2"
+                >
+                  {isDepositing ? (
+                    <>
+                      <span className="material-symbols-outlined animate-spin text-sm" aria-hidden="true">progress_activity</span>
+                      Depositing...
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined text-sm" aria-hidden="true">arrow_downward</span>
+                      Confirm Deposit
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

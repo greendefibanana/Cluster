@@ -7,9 +7,9 @@ import { launchMemeTokenWithConnectedWallet } from "../lib/web3";
 
 export default function AgentEditor() {
   const navigate = useNavigate();
-  const { agents, executionHistory, executeAgent, wallet } = useAppContext();
+  const { agents, swarms = [], executionHistory, executeAgent, wallet } = useAppContext();
   const [activeTab, setActiveTab] = useState<"chat" | "memory">("chat");
-  const [selectedAgentId, setSelectedAgentId] = useState(agents[0]?.id ?? "");
+  const [selectedEntityId, setSelectedEntityId] = useState(agents[0]?.id ?? "");
   const [draft, setDraft] = useState("Draft a strategy thread for a BNB-native volatility setup.");
   const [pending, setPending] = useState(false);
   const [showSkillToast, setShowSkillToast] = useState(false);
@@ -21,7 +21,23 @@ export default function AgentEditor() {
   const [images, setImages] = useState<any>(null);
   const [launchResult, setLaunchResult] = useState<any>(null);
 
-  const agent = agents.find((item) => item.id === selectedAgentId) ?? agents[0];
+  const isSwarm = selectedEntityId.startsWith("swarm-");
+  const rawId = selectedEntityId.replace("swarm-", "");
+  
+  const rawSwarm = swarms.find((item) => item.id === rawId);
+  const rawAgent = agents.find((item) => item.id === selectedEntityId) ?? agents[0];
+  
+  const agent = isSwarm && rawSwarm ? {
+    id: `swarm-${rawSwarm.id}`,
+    name: rawSwarm.name,
+    title: rawSwarm.strategy,
+    avatarUrl: `https://api.dicebear.com/7.x/shapes/svg?seed=${rawSwarm.tbaAddress}&colors=111827`,
+    skills: [],
+    ownerAddress: rawSwarm.ownerAddress,
+    tbaAddress: rawSwarm.tbaAddress,
+    score: 100,
+  } : rawAgent;
+
   const agentHistory = executionHistory.filter((entry) => entry.agentId === agent?.id);
 
   const handleSlotClick = (isFull: boolean) => {
@@ -112,19 +128,30 @@ export default function AgentEditor() {
             </div>
             <div className="flex items-center gap-3 mb-3">
               <label htmlFor="agent-select" className="font-label text-xs uppercase tracking-widest text-on-surface-variant">
-                Active Agent
+                Active Entity
               </label>
               <select
                 id="agent-select"
                 value={agent.id}
-                onChange={(event) => setSelectedAgentId(event.target.value)}
-                className="bg-surface-container-lowest border border-outline-variant/20 rounded px-3 py-2 text-sm text-on-surface"
+                onChange={(event) => setSelectedEntityId(event.target.value)}
+                className="bg-surface-container-lowest border border-outline-variant/20 rounded px-3 py-2 text-sm text-on-surface w-full"
               >
-                {agents.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
+                <optgroup label="Agents">
+                  {agents.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </optgroup>
+                {swarms.length > 0 && (
+                  <optgroup label="Swarms">
+                    {swarms.map((item) => (
+                      <option key={`swarm-${item.id}`} value={`swarm-${item.id}`}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             </div>
             <div className="flex gap-2">

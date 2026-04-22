@@ -25,7 +25,8 @@ contract AgentJobMarket is ReentrancyGuard, Pausable, Ownable {
 
     enum ProviderKind {
         Agent,
-        Swarm
+        Swarm,
+        None
     }
 
     struct Job {
@@ -40,6 +41,12 @@ contract AgentJobMarket is ReentrancyGuard, Pausable, Ownable {
         string deliverable;
     }
 
+    struct Bid {
+        ProviderKind providerKind;
+        uint256 providerId;
+        uint256 createdAt;
+    }
+
     IERC20 public immutable paymentToken;
     AgentNFT public immutable agentCollection;
     SwarmNFT public immutable swarmCollection;
@@ -48,6 +55,7 @@ contract AgentJobMarket is ReentrancyGuard, Pausable, Ownable {
     uint256 public nextJobId = 1;
     mapping(uint256 => Job) public jobs;
     mapping(uint256 => uint256[]) internal _creditedAgentIds;
+    mapping(uint256 => Bid[]) public jobBids;
 
     event JobCreated(
         uint256 indexed jobId,
@@ -57,6 +65,8 @@ contract AgentJobMarket is ReentrancyGuard, Pausable, Ownable {
         uint256 providerId,
         uint256 budget
     );
+    event BidPlaced(uint256 indexed jobId, ProviderKind providerKind, uint256 providerId);
+    event BidAccepted(uint256 indexed jobId, ProviderKind providerKind, uint256 providerId);
     event JobFunded(uint256 indexed jobId, uint256 budget);
     event JobSubmitted(uint256 indexed jobId, string deliverable);
     event JobCompleted(uint256 indexed jobId, address payoutRecipient, string reason);
@@ -154,10 +164,99 @@ contract AgentJobMarket is ReentrancyGuard, Pausable, Ownable {
         emit JobCreated(jobId, msg.sender, evaluator, ProviderKind.Swarm, swarmId, budget);
     }
 
+    function createOpenJob(
+        address evaluator,
+        uint256 budget,
+        uint256 expiredAt,
+        string calldata description
+    ) external whenNotPaused returns (uint256 jobId) {
+        require(evaluator != address(0), "invalid evaluator");
+        require(evaluator != msg.sender, "evaluator cannot be client");
+        require(expiredAt > block.timestamp, "invalid expiry");
+        require(budget > 0, "budget zero");
+
+        jobId = nextJobId++;
+        Job storage job = jobs[jobId];
+        job.client = msg.sender;
+        job.evaluator = evaluator;
+        job.budget = budget;
+        job.expiredAt = expiredAt;
+        job.providerKind = ProviderKind.None;
+        job.providerId = 0;
+        job.status = JobStatus.Open;
+        job.description = description;
+
+        emit JobCreated(jobId, msg.sender, evaluator, ProviderKind.None, 0, budget);
+    }
+
+    function placeBid(
+        uint256 jobId,
+        ProviderKind providerKind,
+        uint256 providerId
+    ) external whenNotPaused {
+        Job storage job = jobs[jobId];
+        require(job.status == JobStatus.Open, "job not open");
+        require(job.providerKind == ProviderKind.None, "not an open job");
+        require(block.timestamp < job.expiredAt, "job expired");
+        require(providerKind != ProviderKind.None, "invalid provider kind");
+
+        if (providerKind == ProviderKind.Agent) {
+            require(agentCollection.ownerOf(providerId) == msg.sender, "not agent owner");
+        } else {
+            require(swarmCollection.ownerOf(providerId) == msg.sender, "not swarm owner");
+        }
+
+        // Check for duplicate bids
+        Bid[] storage bids = jobBids[jobId];
+        for (uint256 i = 0; i < bids.length; i++) {
+            require(
+                !(bids[i].providerKind == providerKind && bids[i].providerId == providerId),
+                "bid already placed"
+            );
+        }
+
+        jobBids[jobId].push(Bid({
+            providerKind: providerKind,
+            providerId: providerId,
+            createdAt: block.timestamp
+        }));
+
+        emit BidPlaced(jobId, providerKind, providerId);
+    }
+
+    function acceptBid(uint256 jobId, uint256 bidIndex) external nonReentrant whenNotPaused {
+        Job storage job = jobs[jobId];
+        require(job.client == msg.sender, "not client");
+        require(job.status == JobStatus.Open, "job not open");
+        require(job.providerKind == ProviderKind.None, "not an open job");
+
+        Bid[] storage bids = jobBids[jobId];
+        require(bidIndex < bids.length, "invalid bid index");
+
+        Bid storage bid = bids[bidIndex];
+        job.providerKind = bid.providerKind;
+        job.providerId = bid.providerId;
+
+        if (job.providerKind == ProviderKind.Swarm) {
+            // For swarm jobs accepted via bidding, we might need a default set of credited agents
+            // or we just credit the swarm members. For now, we'll keep it simple.
+            // In a real scenario, we might want to pass creditedAgentIds to acceptBid.
+        } else {
+            _creditedAgentIds[jobId].push(job.providerId);
+        }
+
+        emit BidAccepted(jobId, job.providerKind, job.providerId);
+    }
+
+    function getBids(uint256 jobId) external view returns (Bid[] memory) {
+        return jobBids[jobId];
+    }
+
     function fund(uint256 jobId, uint256 expectedBudget) external nonReentrant whenNotPaused {
         Job storage job = jobs[jobId];
         require(job.client == msg.sender, "not client");
         require(job.status == JobStatus.Open, "job not open");
+        require(job.providerKind != ProviderKind.None, "provider not assigned");
         require(job.budget == expectedBudget, "budget mismatch");
 
         job.status = JobStatus.Funded;
@@ -233,15 +332,19 @@ contract AgentJobMarket is ReentrancyGuard, Pausable, Ownable {
     function _isProviderAuthorized(Job storage job) internal view returns (bool) {
         if (job.providerKind == ProviderKind.Agent) {
             return agentCollection.ownerOf(job.providerId) == msg.sender;
+        } else if (job.providerKind == ProviderKind.Swarm) {
+            return swarmCollection.ownerOf(job.providerId) == msg.sender;
         }
-        return swarmCollection.ownerOf(job.providerId) == msg.sender;
+        return false;
     }
 
     function _providerRecipient(Job storage job) internal view returns (address) {
         if (job.providerKind == ProviderKind.Agent) {
             return agentCollection.tbas(job.providerId);
+        } else if (job.providerKind == ProviderKind.Swarm) {
+            return swarmCollection.tbas(job.providerId);
         }
-        return swarmCollection.tbas(job.providerId);
+        return address(0);
     }
 
     function _creditScores(uint256 jobId, Job storage job) internal {

@@ -26,6 +26,7 @@ export const appEnv = {
     paymentToken: env.VITE_PAYMENT_TOKEN_ADDRESS?.trim() || "",
     tokenFactory: env.VITE_TOKEN_FACTORY_ADDRESS?.trim() || "",
     liquidityManager: env.VITE_LIQUIDITY_MANAGER_ADDRESS?.trim() || "",
+    swarmNft: env.VITE_SWARM_NFT_ADDRESS?.trim() || "",
   },
 };
 

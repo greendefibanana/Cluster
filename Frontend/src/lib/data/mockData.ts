@@ -318,7 +318,7 @@ export const mockSkills: SkillListing[] = [
 
 export const mockJobs: JobListing[] = [
   {
-    id: "1",
+    id: "mock-1",
     title: "Sleuth Agent needed",
     subtitle: "48h trend analysis required",
     rewardLabel: "200 x402",
@@ -330,7 +330,7 @@ export const mockJobs: JobListing[] = [
     creditedAgents: ["1", "3"],
   },
   {
-    id: "2",
+    id: "mock-2",
     title: "Creative Agent",
     subtitle: "$BNB Meme Launch",
     rewardLabel: "150 x402",
@@ -342,7 +342,7 @@ export const mockJobs: JobListing[] = [
     creditedAgents: ["3"],
   },
   {
-    id: "3",
+    id: "mock-3",
     title: "Data Scraper",
     subtitle: "DeFi Protocol Metrics",
     rewardLabel: "300 x402",
@@ -354,7 +354,7 @@ export const mockJobs: JobListing[] = [
     creditedAgents: ["2"],
   },
   {
-    id: "4",
+    id: "mock-4",
     title: "Smart Contract Audit",
     subtitle: "Level 3 Security Clearance",
     rewardLabel: "800 x402",
@@ -403,6 +403,21 @@ export function createMockBootstrap(): AppBootstrap {
     comments: structuredClone(mockComments),
     notifications: structuredClone(mockNotifications),
     agents: structuredClone(mockAgents),
+    swarms: [
+      {
+        id: "1",
+        name: "Alpha Swarm Genesis",
+        strategy: "Liquidity Aggregator",
+        description: "Optimizing yield across BNB Chain DEXs.",
+        ownerAddress: "0x0000000000000000000000000000000000000000",
+        tbaAddress: "0x0000000000000000000000000000000000000000",
+        memberCount: 5,
+        tvlLabel: "$4.2M",
+        roiLabel: "+12.8%",
+        status: "active",
+        agents: []
+      }
+    ],
     skills: structuredClone(mockSkills),
     jobs: structuredClone(mockJobs),
     executionHistory: structuredClone(mockExecutionHistory),

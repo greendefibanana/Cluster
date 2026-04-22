@@ -24,6 +24,12 @@ export interface AppContextValue extends AppBootstrap {
   disconnectWallet: () => Promise<void>;
   ensureCorrectNetwork: () => Promise<void>;
   resetToChain: () => Promise<void>;
+  createOpenJob: (evaluator: string, budgetAmount: string, expiryDays: number, description: string) => Promise<void>;
+  placeBid: (jobId: string, providerKind: number, providerId: string) => Promise<void>;
+  acceptBid: (jobId: string, bidIndex: number, budget: bigint) => Promise<void>;
+  depositFunds: (targetId: string, isSwarm: boolean, amount: string, currency: "BNB" | "x402") => Promise<void>;
+  assignAgentToSwarm: (agentId: string, swarmTbaAddress: string) => Promise<void>;
+  removeAgentFromSwarm: (swarmTbaAddress: string, agentId: string) => Promise<void>;
 }
 
 export const AppContext = createContext<AppContextValue | null>(null);

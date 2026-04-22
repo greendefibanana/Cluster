@@ -3,7 +3,7 @@ import { readStorage, writeStorage } from "../storage";
 import { supabase } from "../supabase";
 import { appEnv, runtimeMode } from "../env";
 import { createClientId } from "../id";
-import { fetchAgentsForOwner } from "../web3";
+import { fetchAgentsForOwner, fetchSwarmsForOwner } from "../web3";
 import type {
   AgentExecutionInput,
   AppBootstrap,
@@ -101,13 +101,13 @@ async function tryLoadSupabaseData(baseState: PersistedState): Promise<Persisted
       commentsCount: Number(row.comments_count ?? 0),
       shares: Number(row.shares ?? 0),
       mode: row.mode === "social" ? "social" : "yield",
-      strategySummary: row.strategy_summary ?? nextState.feed[0].strategySummary,
-      tbaAddress: row.tba_address ?? nextState.feed[0].tbaAddress,
-      roleLabel: row.role_label ?? nextState.feed[0].roleLabel,
+      strategy_summary: row.strategy_summary ?? nextState.feed[0].strategySummary,
+      tba_address: row.tba_address ?? nextState.feed[0].tbaAddress,
+      role_label: row.role_label ?? nextState.feed[0].roleLabel,
       score: Number(row.score ?? nextState.feed[0].score),
-      avatarUrl: row.avatar_url ?? nextState.feed[0].avatarUrl,
+      avatar_url: row.avatar_url ?? nextState.feed[0].avatarUrl,
       tags: Array.isArray(row.tags) ? row.tags : nextState.feed[0].tags,
-      chartPoints: Array.isArray(row.chart_points) ? row.chart_points : nextState.feed[0].chartPoints,
+      chart_points: Array.isArray(row.chart_points) ? row.chart_points : nextState.feed[0].chartPoints,
       capabilityTag: row.capability_tag ?? nextState.feed[0].capabilityTag,
       insightTitle: row.insight_title ?? undefined,
     }));
@@ -174,20 +174,40 @@ async function tryLoadSupabaseData(baseState: PersistedState): Promise<Persisted
   return nextState;
 }
 
-async function tryEnrichAgentsFromChain(state: PersistedState, ownerAddress: string): Promise<PersistedState> {
-  if (!runtimeMode.hasRpc || !ownerAddress) {
+async function tryEnrichFromChain(state: PersistedState, ownerAddress?: string): Promise<PersistedState> {
+  const { publicClient, fetchAgentsForOwner, fetchSwarmsForOwner, fetchJobs } = await import("../web3");
+  if (!runtimeMode.hasRpc) {
     return state;
   }
 
   const nextState = structuredClone(state);
   
   try {
-    const liveAgents = await fetchAgentsForOwner(ownerAddress);
+    const [liveAgents, liveSwarms, liveJobs] = await Promise.all([
+      ownerAddress ? fetchAgentsForOwner(ownerAddress) : Promise.resolve([]),
+      ownerAddress ? fetchSwarmsForOwner(ownerAddress) : Promise.resolve([]),
+      fetchJobs(publicClient)
+    ]);
+
     if (liveAgents.length > 0) {
-      nextState.agents = liveAgents;
+      const { mockAgents } = await import("./mockData");
+      nextState.agents = [
+        ...liveAgents,
+        ...mockAgents.filter((mockAgent) => !liveAgents.some((la) => la.id === mockAgent.id || la.id === mockAgent.id.replace("agent-", "")))
+      ];
     }
+    if (liveSwarms.length > 0) {
+      nextState.swarms = liveSwarms;
+    }
+    
+    // Always merge live jobs with mock jobs directly to prevent local storage corruption loss
+    const { mockJobs } = await import("./mockData");
+    nextState.jobs = [
+      ...liveJobs,
+      ...mockJobs.filter((mockJob) => !liveJobs.some((lj) => lj.id === mockJob.id || lj.id === mockJob.id.replace("mock-", "")))
+    ];
   } catch (error) {
-    console.error("Failed to read agents from chain:", error);
+    console.error("Failed to read from chain:", error);
   }
 
   return nextState;
@@ -211,8 +231,8 @@ class ClustrRepository {
       nextState = await tryLoadSupabaseData(nextState);
     }
 
-    if (runtimeMode.hasRpc && ownerAddress) {
-      nextState = await tryEnrichAgentsFromChain(nextState, ownerAddress);
+    if (runtimeMode.hasRpc) {
+      nextState = await tryEnrichFromChain(nextState, ownerAddress);
     }
 
     this.state = nextState;
@@ -350,9 +370,13 @@ class ClustrRepository {
   }
 
   async executeAgent(input: AgentExecutionInput): Promise<ExecutionRecord> {
-    const agent = this.state.agents.find((item) => item.id === input.agentId);
-    if (!agent) {
-      throw new Error("Agent not found");
+    const isSwarmId = input.agentId.startsWith("swarm-");
+    const entity = isSwarmId 
+      ? this.state.swarms.find((s) => `swarm-${s.id}` === input.agentId)
+      : this.state.agents.find((a) => a.id === input.agentId);
+
+    if (!entity) {
+      throw new Error("Entity not found: " + input.agentId);
     }
 
     const fallbackRecord: ExecutionRecord = {
@@ -362,15 +386,15 @@ class ClustrRepository {
       action: input.action || "post",
       status: "success",
       createdAt: new Date().toISOString(),
-      response: `Mocked agent response for ${agent.name}: ${input.message}`,
-      selectedSkillName: agent.skills.find((skill) => skill.equipped)?.name,
+      response: `Mocked ${isSwarmId ? 'swarm' : 'agent'} response for ${entity.name}: ${input.message}`,
+      selectedSkillName: !isSwarmId ? (entity as any).skills?.find((skill: any) => skill.equipped)?.name : undefined,
     };
 
     const record =
       runtimeMode.hasGateway && appEnv.contracts.agentNft && appEnv.contracts.skillNft
         ? await executeAgentDirective({
             ...input,
-            tbaAddress: agent.tbaAddress,
+            tbaAddress: entity.tbaAddress,
             agentNftAddress: appEnv.contracts.agentNft,
             skillNftAddress: appEnv.contracts.skillNft,
           }).catch(() => fallbackRecord)

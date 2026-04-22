@@ -1,6 +1,7 @@
-import { createPublicClient, custom, decodeEventLog, http, parseAbi, parseEther, parseUnits, createWalletClient } from "viem";
+import { createPublicClient, custom, decodeEventLog, http, parseAbi, parseEther, parseUnits, createWalletClient, formatUnits, encodeFunctionData } from "viem";
 import { bscTestnet } from "viem/chains";
 import { appEnv, runtimeMode } from "./env";
+import type { JobListing, Bid } from "../types/domain";
 
 const configuredChain = { ...bscTestnet, id: appEnv.chainId };
 
@@ -20,6 +21,16 @@ const agentNftAbi = parseAbi([
   "function nextTokenId() view returns (uint256)",
   "function ownerOf(uint256 tokenId) view returns (address)",
   "function mintAgent(address to, string calldata name, string calldata role, string calldata description, bytes32 salt) external returns (uint256 agentId, address tba)"
+]);
+const swarmNftAbi = parseAbi([
+  "function tbas(uint256 swarmId) view returns (address)",
+  "function balanceOf(address owner) view returns (uint256)",
+  "function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)",
+  "function swarmProfiles(uint256 swarmId) view returns (string name, string strategy, string description)",
+  "function totalSupply() view returns (uint256)",
+  "function nextTokenId() view returns (uint256)",
+  "function ownerOf(uint256 tokenId) view returns (address)",
+  "function mintSwarm(address to, string calldata name, string calldata strategy, string calldata description, bytes32 salt) external returns (uint256 swarmId, address tba)"
 ]);
 const performanceRankAbi = parseAbi(["function intelligenceScore(uint256 agentId) view returns (uint256)"]);
 const skillManagerAbi = parseAbi([
@@ -41,10 +52,148 @@ const tokenFactoryAbi = parseAbi([
   "function deployToken(string name, string symbol, uint256 supply, address tokenOwner) returns (address)",
   "event WorkerTokenDeployed(address indexed token, address indexed owner, string name, string symbol, uint256 supply)"
 ]);
-const workerTokenAbi = parseAbi(["function approve(address spender, uint256 amount) returns (bool)"]);
+const workerTokenAbi = parseAbi(["function approve(address spender, uint256 amount) returns (bool)", "function allowance(address owner, address spender) view returns (uint256)"]);
 const liquidityManagerAbi = parseAbi([
   "function seedLiquidityWithNative(address token, uint256 amountTokenDesired, uint256 amountTokenMin, uint256 amountNativeMin, address lpRecipient, uint256 deadline) payable returns (uint256, uint256, uint256)"
 ]);
+const agentJobMarketAbi = parseAbi([
+  "struct Bid { uint8 providerKind; uint256 providerId; uint256 createdAt; }",
+  "function createAgentJob(uint256 agentId, address evaluator, uint256 budget, uint256 expiredAt, string calldata description) external returns (uint256 jobId)",
+  "function createOpenJob(address evaluator, uint256 budget, uint256 expiredAt, string calldata description) external returns (uint256 jobId)",
+  "function placeBid(uint256 jobId, uint8 providerKind, uint256 providerId) external",
+  "function acceptBid(uint256 jobId, uint256 bidIndex) external",
+  "function fund(uint256 jobId, uint256 expectedBudget) external",
+  "function jobs(uint256 jobId) view returns (address client, address evaluator, uint256 budget, uint256 expiredAt, uint8 providerKind, uint256 providerId, uint8 status, string description, string deliverable)",
+  "function nextJobId() view returns (uint256)",
+  "function getBids(uint256 jobId) view returns (Bid[])"
+]);
+
+export async function createOpenJob(
+  walletClient: any,
+  publicClient: any,
+  ownerAddress: string,
+  evaluator: string,
+  budgetAmount: string,
+  expiryDays: number,
+  description: string
+) {
+  if (
+    !walletClient ||
+    !publicClient ||
+    !appEnv.contracts.jobMarket ||
+    !appEnv.contracts.paymentToken
+  ) {
+    throw new Error("Job Market or Payment Token not configured");
+  }
+
+  const budget = parseUnits(budgetAmount, 18);
+  const expiry = BigInt(Math.floor(Date.now() / 1000) + expiryDays * 86400);
+
+  // 1. Approve Job Market to spend tokens
+  const currentAllowance = (await (publicClient as any).readContract({
+    address: appEnv.contracts.paymentToken as `0x${string}`,
+    abi: workerTokenAbi,
+    functionName: "allowance",
+    args: [ownerAddress as `0x${string}`, appEnv.contracts.jobMarket as `0x${string}`],
+  })) as bigint;
+
+  if (currentAllowance < budget) {
+    const approveHash = await walletClient.writeContract({
+      address: appEnv.contracts.paymentToken as `0x${string}`,
+      abi: workerTokenAbi,
+      functionName: "approve",
+      args: [appEnv.contracts.jobMarket as `0x${string}`, budget],
+      account: ownerAddress as `0x${string}`,
+      chain: configuredChain,
+    });
+    await publicClient.waitForTransactionReceipt({ hash: approveHash });
+  }
+
+  // 2. Create Job
+  const createHash = await walletClient.writeContract({
+    address: appEnv.contracts.jobMarket as `0x${string}`,
+    abi: agentJobMarketAbi,
+    functionName: "createOpenJob",
+    args: [evaluator as `0x${string}`, budget, expiry, description],
+    account: ownerAddress as `0x${string}`,
+    chain: configuredChain,
+  });
+  const createReceipt = await publicClient.waitForTransactionReceipt({ hash: createHash });
+
+  // 3. Find Job ID
+  const nextJobId = (await (publicClient as any).readContract({
+    address: appEnv.contracts.jobMarket as `0x${string}`,
+    abi: agentJobMarketAbi,
+    functionName: "nextJobId",
+  })) as bigint;
+  const jobId = nextJobId - 1n;
+
+  return { jobId: jobId.toString(), txHash: createReceipt.transactionHash };
+}
+
+export async function placeBid(
+  walletClient: any,
+  publicClient: any,
+  ownerAddress: string,
+  jobId: string,
+  providerKind: number,
+  providerId: string
+) {
+  if (!walletClient || !publicClient || !appEnv.contracts.jobMarket) {
+    throw new Error("Job Market not configured");
+  }
+
+  const hash = await walletClient.writeContract({
+    address: appEnv.contracts.jobMarket as `0x${string}`,
+    abi: agentJobMarketAbi,
+    functionName: "placeBid",
+    args: [BigInt(jobId), providerKind, BigInt(providerId)],
+    account: ownerAddress as `0x${string}`,
+    chain: configuredChain,
+  });
+  return await publicClient.waitForTransactionReceipt({ hash });
+}
+
+export async function acceptBid(
+  walletClient: any,
+  publicClient: any,
+  ownerAddress: string,
+  jobId: string,
+  bidIndex: number,
+  budget: bigint
+) {
+  if (
+    !walletClient ||
+    !publicClient ||
+    !appEnv.contracts.jobMarket ||
+    !appEnv.contracts.paymentToken
+  ) {
+    throw new Error("Job Market or Payment Token not configured");
+  }
+
+  // 1. Accept Bid
+  const acceptHash = await walletClient.writeContract({
+    address: appEnv.contracts.jobMarket as `0x${string}`,
+    abi: agentJobMarketAbi,
+    functionName: "acceptBid",
+    args: [BigInt(jobId), BigInt(bidIndex)],
+    account: ownerAddress as `0x${string}`,
+    chain: configuredChain,
+  });
+  await publicClient.waitForTransactionReceipt({ hash: acceptHash });
+
+  // 2. Fund Job
+  const fundHash = await walletClient.writeContract({
+    address: appEnv.contracts.jobMarket as `0x${string}`,
+    abi: agentJobMarketAbi,
+    functionName: "fund",
+    args: [BigInt(jobId), budget],
+    account: ownerAddress as `0x${string}`,
+    chain: configuredChain,
+  });
+  return await publicClient.waitForTransactionReceipt({ hash: fundHash });
+}
+
 
 export interface EIP6963ProviderDetail {
   info: {
@@ -196,15 +345,99 @@ export async function disconnectInjectedWallet(): Promise<void> {
 }
 
 export function getWalletClient() {
-  if (!activeProvider) {
+  const provider = activeProvider || (typeof window !== "undefined" ? (window as any).ethereum : null);
+  if (!provider) {
     return null;
   }
 
   return createWalletClient({
-    transport: custom(activeProvider),
+    transport: custom(provider),
   });
 }
 
+export function getPublicClient() {
+  return publicClient;
+}
+
+
+export async function fetchJobs(publicClient: any): Promise<JobListing[]> {
+  if (!publicClient || !appEnv.contracts.jobMarket) {
+    return [];
+  }
+
+  try {
+    const nextJobId = (await (publicClient as any).readContract({
+      address: appEnv.contracts.jobMarket as `0x${string}`,
+      abi: agentJobMarketAbi,
+      functionName: "nextJobId",
+    })) as bigint;
+
+    const jobCount = Number(nextJobId) - 1;
+    const jobs: JobListing[] = [];
+
+    for (let i = 1; i <= jobCount; i++) {
+      const jobData = (await (publicClient as any).readContract({
+        address: appEnv.contracts.jobMarket as `0x${string}`,
+        abi: agentJobMarketAbi,
+        functionName: "jobs",
+        args: [BigInt(i)],
+      })) as any;
+
+      const [
+        client,
+        evaluator,
+        budget,
+        expiredAt,
+        providerKind,
+        providerId,
+        status,
+        description,
+        deliverable
+      ] = jobData;
+
+      const bidsData = (await (publicClient as any).readContract({
+        address: appEnv.contracts.jobMarket as `0x${string}`,
+        abi: agentJobMarketAbi,
+        functionName: "getBids",
+        args: [BigInt(i)],
+      })) as any[];
+
+      const bids: Bid[] = bidsData.map((b: any) => ({
+        providerKind: Number(b.providerKind),
+        providerId: b.providerId.toString(),
+        createdAt: Number(b.createdAt)
+      }));
+
+      const statusLabels = ["Open", "Funded", "Submitted", "Completed", "Rejected", "Expired"];
+      const accents: ("primary" | "secondary" | "tertiary" | "error")[] = ["primary", "secondary", "tertiary", "error"];
+
+      jobs.push({
+        id: i.toString(),
+        title: description.split("\n")[0] || "Untitled Job",
+        subtitle: `Status: ${statusLabels[status]}`,
+        rewardLabel: `${formatUnits(budget, 18)} x402`,
+        durationLabel: new Date(Number(expiredAt) * 1000).toLocaleDateString(),
+        bidCount: bids.length,
+        stateLabel: statusLabels[status],
+        accent: accents[i % accents.length],
+        summary: description,
+        creditedAgents: providerKind === 0 ? [providerId.toString()] : [], 
+        clientAddress: client,
+        evaluatorAddress: evaluator,
+        budget: budget.toString(),
+        status: Number(status),
+        providerKind: Number(providerKind),
+        providerId: providerId.toString(),
+        bids: bids
+      });
+    }
+
+    return jobs;
+  } catch (error) {
+    console.error("Failed to fetch jobs:", error);
+    return [];
+  }
+}
 
 export async function fetchSkillsForAgent(agentId: string) {
   if (!publicClient || !appEnv.contracts.skillManager || !appEnv.contracts.skillNft) return [];
@@ -266,7 +499,7 @@ export async function fetchAgentsForOwner(ownerAddress: string) {
   });
 
   const agents = [];
-  for (let i = 0; i < balance; i++) {
+  for (let i = 0; i < Number(balance); i++) {
     const tokenId = await (publicClient as any).readContract({
       address: appEnv.contracts.agentNft as `0x${string}`,
       abi: agentNftAbi,
@@ -345,9 +578,140 @@ export async function fetchAgentsForOwner(ownerAddress: string) {
   return agents;
 }
 
-export async function mintNewAgent(ownerAddress: string, name: string, role: string, description: string) {
+export async function mintSwarm(
+  ownerAddress: string,
+  name: string,
+  strategy: string,
+  description: string,
+  salt: `0x${string}`
+) {
+  const walletClient = getWalletClient();
+  if (!walletClient) throw new Error("Wallet not available. Please try reconnecting.");
+  if (!appEnv.contracts.swarmNft) throw new Error("Swarm NFT contract address not found. Please restart your Vite dev server.");
+
+  const hash = await walletClient.writeContract({
+    address: appEnv.contracts.swarmNft as `0x${string}`,
+    abi: swarmNftAbi,
+    functionName: "mintSwarm",
+    args: [ownerAddress as `0x${string}`, name, strategy, description, salt],
+    account: ownerAddress as `0x${string}`,
+    chain: configuredChain,
+  });
+
+  await publicClient.waitForTransactionReceipt({ hash });
+  return hash;
+}
+
+export async function fetchSwarmsForOwner(ownerAddress: string) {
+  if (!publicClient || !appEnv.contracts.swarmNft) {
+    return [];
+  }
+
+  try {
+    const balance = await (publicClient as any).readContract({
+      address: appEnv.contracts.swarmNft as `0x${string}`,
+      abi: swarmNftAbi,
+      functionName: "balanceOf",
+      args: [ownerAddress as `0x${string}`],
+    });
+
+    const swarms = [];
+    for (let i = 0; i < Number(balance); i++) {
+      const tokenId = await (publicClient as any).readContract({
+        address: appEnv.contracts.swarmNft as `0x${string}`,
+        abi: swarmNftAbi,
+        functionName: "tokenOfOwnerByIndex",
+        args: [ownerAddress as `0x${string}`, BigInt(i)],
+      });
+
+      const [tbaAddress, [name, strategy, description]] = await Promise.all([
+        publicClient.readContract({
+          address: appEnv.contracts.swarmNft as `0x${string}`,
+          abi: swarmNftAbi,
+          functionName: "tbas",
+          args: [tokenId],
+        }),
+        publicClient.readContract({
+          address: appEnv.contracts.swarmNft as `0x${string}`,
+          abi: swarmNftAbi,
+          functionName: "swarmProfiles",
+          args: [tokenId],
+        }),
+      ]);
+
+      const swarmAgents = await fetchAgentsForOwner(tbaAddress);
+
+      swarms.push({
+        id: tokenId.toString(),
+        name,
+        strategy,
+        description,
+        ownerAddress,
+        tbaAddress,
+        memberCount: swarmAgents.length,
+        tvlLabel: "0.00 BNB",
+        roiLabel: "0%",
+        status: "active" as const,
+        agents: swarmAgents,
+      });
+    }
+
+    return swarms;
+  } catch (error) {
+    console.error("Failed to fetch swarms:", error);
+    return [];
+  }
+}
+
+export async function assignAgentToSwarm(
+  ownerAddress: string,
+  agentId: string,
+  swarmTbaAddress: string
+) {
   const walletClient = getWalletClient();
   if (!walletClient || !appEnv.contracts.agentNft) throw new Error("Wallet or contract not available");
+
+  const hash = await walletClient.writeContract({
+    address: appEnv.contracts.agentNft as `0x${string}`,
+    abi: parseAbi(["function safeTransferFrom(address from, address to, uint256 tokenId)"]),
+    functionName: "safeTransferFrom",
+    args: [ownerAddress as `0x${string}`, swarmTbaAddress as `0x${string}`, BigInt(agentId)],
+    account: ownerAddress as `0x${string}`,
+    chain: configuredChain,
+  });
+
+  return hash;
+}
+
+export async function removeAgentFromSwarm(
+  ownerAddress: string,
+  swarmTbaAddress: string,
+  agentId: string
+) {
+  const walletClient = getWalletClient();
+  if (!walletClient || !appEnv.contracts.agentNft) throw new Error("Wallet or contract not available");
+
+  const data = encodeFunctionData({
+    abi: parseAbi(["function safeTransferFrom(address from, address to, uint256 tokenId)"]),
+    functionName: "safeTransferFrom",
+    args: [swarmTbaAddress as `0x${string}`, ownerAddress as `0x${string}`, BigInt(agentId)],
+  });
+
+  const hash = await walletClient.writeContract({
+    address: swarmTbaAddress as `0x${string}`,
+    abi: parseAbi(["function execute(address to, uint256 value, bytes calldata data, uint8 operation)"]),
+    functionName: "execute",
+    args: [appEnv.contracts.agentNft as `0x${string}`, 0n, data, 0],
+    account: ownerAddress as `0x${string}`,
+    chain: configuredChain,
+  });
+
+  return hash;
+}
+
+export async function mintNewAgent(ownerAddress: string, name: string, role: string, description: string) {
+  const walletClient = getWalletClient();
+  if (!walletClient || !appEnv.contracts.agentNft || !publicClient) throw new Error("Wallet or contract not available");
 
   const saltBytes = new Uint8Array(32);
   crypto.getRandomValues(saltBytes);
@@ -362,6 +726,7 @@ export async function mintNewAgent(ownerAddress: string, name: string, role: str
     chain: configuredChain,
   });
 
+  await publicClient.waitForTransactionReceipt({ hash });
   return hash;
 }
 
@@ -578,4 +943,78 @@ export async function fetchOwnedSkills(ownerAddress: string) {
     console.error("fetchOwnedSkills error", e);
     return [];
   }
+}
+
+export async function createDirectAgentJob(
+  ownerAddress: string,
+  agentId: string,
+  evaluator: string,
+  budgetAmount: string,
+  expiryDays: number,
+  description: string
+) {
+  const walletClient = getWalletClient();
+  if (
+    !walletClient ||
+    !publicClient ||
+    !appEnv.contracts.jobMarket ||
+    !appEnv.contracts.paymentToken
+  ) {
+    throw new Error("Job Market or Payment Token not configured");
+  }
+
+  const budget = parseUnits(budgetAmount, 18);
+  const expiry = BigInt(Math.floor(Date.now() / 1000) + expiryDays * 86400);
+
+  // 1. Approve Job Market to spend tokens
+  const currentAllowance = (await (publicClient as any).readContract({
+    address: appEnv.contracts.paymentToken as `0x${string}`,
+    abi: workerTokenAbi,
+    functionName: "allowance",
+    args: [ownerAddress as `0x${string}`, appEnv.contracts.jobMarket as `0x${string}`],
+  })) as bigint;
+
+  if (currentAllowance < budget) {
+    const approveHash = await walletClient.writeContract({
+      address: appEnv.contracts.paymentToken as `0x${string}`,
+      abi: workerTokenAbi,
+      functionName: "approve",
+      args: [appEnv.contracts.jobMarket as `0x${string}`, budget],
+      account: ownerAddress as `0x${string}`,
+      chain: configuredChain,
+    });
+    await publicClient.waitForTransactionReceipt({ hash: approveHash });
+  }
+
+  // 2. Create Job
+  const createHash = await walletClient.writeContract({
+    address: appEnv.contracts.jobMarket as `0x${string}`,
+    abi: agentJobMarketAbi,
+    functionName: "createAgentJob",
+    args: [BigInt(agentId), evaluator as `0x${string}`, budget, expiry, description],
+    account: ownerAddress as `0x${string}`,
+    chain: configuredChain,
+  });
+  const createReceipt = await publicClient.waitForTransactionReceipt({ hash: createHash });
+
+  // 3. Find Job ID from events if possible (or just use nextJobId-1)
+  const nextJobId = (await (publicClient as any).readContract({
+    address: appEnv.contracts.jobMarket as `0x${string}`,
+    abi: agentJobMarketAbi,
+    functionName: "nextJobId",
+  })) as bigint;
+  const jobId = nextJobId - 1n;
+
+  // 4. Fund Job
+  const fundHash = await walletClient.writeContract({
+    address: appEnv.contracts.jobMarket as `0x${string}`,
+    abi: agentJobMarketAbi,
+    functionName: "fund",
+    args: [jobId, budget],
+    account: ownerAddress as `0x${string}`,
+    chain: configuredChain,
+  });
+  await publicClient.waitForTransactionReceipt({ hash: fundHash });
+
+  return { jobId: jobId.toString(), txHash: fundHash };
 }

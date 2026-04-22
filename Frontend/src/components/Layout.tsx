@@ -61,6 +61,7 @@ export default function Layout() {
                 <div className="px-4 py-1 text-[10px] uppercase tracking-widest text-[#a4e6ff]/40 font-bold text-left">Analytics & Social</div>
                 <Link className="block px-4 py-2 text-sm text-[#e5e2e3]/60 hover:text-[#a4e6ff] hover:bg-white/5 text-left" to="/rankings">Global Rankings</Link>
                 <Link className="block px-4 py-2 text-sm text-[#e5e2e3]/60 hover:text-[#a4e6ff] hover:bg-white/5 text-left" to="/bazaar-hub">Bazaar Hub</Link>
+                <Link className="block px-4 py-2 text-sm text-[#e5e2e3]/60 hover:text-[#a4e6ff] hover:bg-white/5 text-left" to="/swarm-wars">Swarm Wars</Link>
 
                 <div className="px-4 py-1 mt-2 text-[10px] uppercase tracking-widest text-[#a4e6ff]/40 font-bold text-left">Management</div>
                 <Link className="block px-4 py-2 text-sm text-[#e5e2e3]/60 hover:text-[#a4e6ff] hover:bg-white/5 text-left" to="/bidding-board">Bidding Board</Link>
@@ -195,7 +196,8 @@ export default function Layout() {
 
               <div className="px-4 py-1 text-[10px] uppercase tracking-widest text-[#a4e6ff]/40 font-bold mb-2">Analytics & Social</div>
               <Link onClick={closeMobileMenu} className="px-4 py-2 text-[#e5e2e3]/60 text-sm" to="/rankings">Global Rankings</Link>
-              <Link onClick={closeMobileMenu} className="px-4 py-2 text-[#e5e2e3]/60 text-sm mb-2" to="/bazaar-hub">Bazaar Hub</Link>
+              <Link onClick={closeMobileMenu} className="px-4 py-2 text-[#e5e2e3]/60 text-sm" to="/bazaar-hub">Bazaar Hub</Link>
+              <Link onClick={closeMobileMenu} className="px-4 py-2 text-[#e5e2e3]/60 text-sm mb-2" to="/swarm-wars">Swarm Wars</Link>
 
               <div className="px-4 py-1 text-[10px] uppercase tracking-widest text-[#a4e6ff]/40 font-bold mb-2">Management</div>
               <Link onClick={closeMobileMenu} className="px-4 py-2 text-[#e5e2e3]/60 text-sm" to="/bidding-board">Bidding Board</Link>

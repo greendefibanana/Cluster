@@ -4,10 +4,26 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { parseEther } from "viem";
+import { bscTestnet } from "viem/chains";
 import { clustrRepository } from "../lib/data/repository";
 import { runtimeMode } from "../lib/env";
 import { supabase } from "../lib/supabase";
-import { connectInjectedWallet, disconnectInjectedWallet, switchToConfiguredChain, getDiscoveredProviders, requestSignature, type EIP6963ProviderDetail } from "../lib/web3";
+import { 
+  connectInjectedWallet, 
+  disconnectInjectedWallet, 
+  switchToConfiguredChain, 
+  getDiscoveredProviders, 
+  requestSignature, 
+  getWalletClient, 
+  getPublicClient, 
+  createOpenJob as createOpenJobWeb3, 
+  placeBid as placeBidWeb3, 
+  acceptBid as acceptBidWeb3, 
+  assignAgentToSwarm as assignAgentToSwarmWeb3,
+  removeAgentFromSwarm as removeAgentFromSwarmWeb3,
+  type EIP6963ProviderDetail 
+} from "../lib/web3";
 import { createMockBootstrap } from "../lib/data/mockData";
 import { generateFeedPost } from "../lib/gateway";
 import { createClientId } from "../lib/id";
@@ -281,6 +297,164 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  async function createOpenJob(evaluator: string, budgetAmount: string, expiryDays: number, description: string) {
+    if (!wallet.account) throw new Error("Wallet not connected");
+    setAppStatus("loading");
+    try {
+      await createOpenJobWeb3(
+        getWalletClient(),
+        getPublicClient(),
+        wallet.account,
+        evaluator,
+        budgetAmount,
+        expiryDays,
+        description
+      );
+      await refreshApp();
+    } catch (error) {
+      setAppError(error instanceof Error ? error.message : "Failed to create job");
+      setAppStatus("error");
+      throw error;
+    }
+  }
+
+  async function placeBid(jobId: string, providerKind: number, providerId: string) {
+    if (!wallet.account) throw new Error("Wallet not connected");
+    setAppStatus("loading");
+    try {
+      await placeBidWeb3(
+        getWalletClient(),
+        getPublicClient(),
+        wallet.account,
+        jobId,
+        providerKind,
+        providerId
+      );
+      await refreshApp();
+    } catch (error) {
+      setAppError(error instanceof Error ? error.message : "Failed to place bid");
+      setAppStatus("error");
+      throw error;
+    }
+  }
+
+  async function acceptBid(jobId: string, bidIndex: number, budget: bigint) {
+    if (!wallet.account) throw new Error("Wallet not connected");
+    setAppStatus("loading");
+    try {
+      await acceptBidWeb3(
+        getWalletClient(),
+        getPublicClient(),
+        wallet.account,
+        jobId,
+        bidIndex,
+        budget
+      );
+      await refreshApp();
+    } catch (error) {
+      setAppError(error instanceof Error ? error.message : "Failed to accept bid");
+      setAppStatus("error");
+      throw error;
+    }
+  }
+
+  async function depositFunds(targetId: string, isSwarm: boolean, amount: string, currency: "BNB" | "x402") {
+    if (!wallet.account) throw new Error("Wallet not connected");
+    const target = isSwarm 
+      ? data.swarms.find((s) => s.id === targetId)
+      : data.agents.find((a) => a.id === targetId);
+    
+    if (!target) throw new Error(`Selected ${isSwarm ? "swarm" : "agent"} not found`);
+    
+    setAppStatus("loading");
+    try {
+      const walletClient = getWalletClient();
+      const publicClient = getPublicClient();
+      if (!walletClient || !publicClient) throw new Error("Wallet client not available");
+
+      let hash;
+
+      if (currency === "BNB") {
+        hash = await walletClient.sendTransaction({
+          account: wallet.account as `0x${string}`,
+          to: target.tbaAddress as `0x${string}`,
+          value: parseEther(amount),
+          chain: bscTestnet,
+        });
+      } else {
+        // x402 deposit logic: approve and transfer or just transfer to TBA
+        // Assuming we just transfer directly to TBA for now
+        const tokenAddress = appEnv.contracts.paymentToken;
+        if (!tokenAddress) throw new Error("Payment token contract not configured");
+
+        hash = await walletClient.writeContract({
+          address: tokenAddress as `0x${string}`,
+          abi: [{
+            name: "transfer",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }],
+            outputs: [{ name: "", type: "bool" }]
+          }],
+          functionName: "transfer",
+          args: [target.tbaAddress as `0x${string}`, parseEther(amount)],
+          account: wallet.account as `0x${string}`,
+          chain: bscTestnet,
+        });
+      }
+      
+      console.log(`Deposit transaction sent (${currency}):`, hash);
+      await publicClient.waitForTransactionReceipt({ hash });
+      
+      // Update local overview for instant feedback (optional but nice)
+      setData((current) => ({
+        ...current,
+        overview: {
+          ...current.overview,
+          recentLogs: [
+            {
+              id: `log-dep-${Date.now()}`,
+              kind: "deposit",
+              title: `Deposited ${amount} ${currency} to ${target.name}`,
+              createdAt: new Date().toISOString(),
+              valueLabel: `+${amount}`
+            },
+            ...current.overview.recentLogs
+          ]
+        }
+      }));
+      
+      setAppStatus("success");
+    } catch (error) {
+      setAppError(error instanceof Error ? error.message : "Deposit failed");
+      setAppStatus("error");
+    }
+  }
+
+  async function assignAgentToSwarm(agentId: string, swarmTbaAddress: string) {
+    if (!wallet.account) throw new Error("Wallet not connected");
+    setAppStatus("loading");
+    try {
+      await assignAgentToSwarmWeb3(wallet.account, agentId, swarmTbaAddress);
+      await refreshApp();
+    } catch (error) {
+      setAppError(error instanceof Error ? error.message : "Failed to assign agent");
+      setAppStatus("error");
+    }
+  }
+
+  async function removeAgentFromSwarm(swarmTbaAddress: string, agentId: string) {
+    if (!wallet.account) throw new Error("Wallet not connected");
+    setAppStatus("loading");
+    try {
+      await removeAgentFromSwarmWeb3(wallet.account, swarmTbaAddress, agentId);
+      await refreshApp();
+    } catch (error) {
+      setAppError(error instanceof Error ? error.message : "Failed to remove agent");
+      setAppStatus("error");
+    }
+  }
+
   async function resetToChain() {
     setAppStatus("loading");
     try {
@@ -309,6 +483,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     disconnectWallet,
     ensureCorrectNetwork,
     resetToChain,
+    createOpenJob,
+    placeBid,
+    acceptBid,
+    depositFunds,
+    assignAgentToSwarm,
+    removeAgentFromSwarm,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
