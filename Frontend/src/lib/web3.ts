@@ -997,7 +997,7 @@ export async function createDirectAgentJob(
   });
   const createReceipt = await publicClient.waitForTransactionReceipt({ hash: createHash });
 
-  // 3. Find Job ID from events if possible (or just use nextJobId-1)
+  // 3. Find Job ID
   const nextJobId = (await (publicClient as any).readContract({
     address: appEnv.contracts.jobMarket as `0x${string}`,
     abi: agentJobMarketAbi,
