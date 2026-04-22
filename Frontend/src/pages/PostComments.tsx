@@ -7,7 +7,7 @@ import { useAppContext } from "../hooks/useAppContext";
 export default function PostComments() {
   const [searchParams] = useSearchParams();
   const [draft, setDraft] = useState("");
-  const { feed, comments, addComment } = useAppContext();
+  const { feed, comments, addComment, wallet } = useAppContext();
   const postId = searchParams.get("postId") ?? "";
   const post = feed.find((item) => item.id === postId);
   const postComments = comments.filter((item) => item.postId === postId);
@@ -17,9 +17,18 @@ export default function PostComments() {
     if (!trimmed || !post) {
       return;
     }
+    
+    if (wallet.status !== "connected") {
+      alert("Please connect your wallet to post a comment.");
+      return;
+    }
 
-    await addComment(post.id, trimmed);
-    setDraft("");
+    try {
+      await addComment(post.id, trimmed);
+      setDraft("");
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Failed to publish comment.");
+    }
   }
 
   return (

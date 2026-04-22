@@ -12,11 +12,6 @@ contract WorkerTokenFactory is Ownable {
 
     constructor() {}
 
-    modifier onlyTrusted() {
-        require(trustedCallers[_msgSender()] || _msgSender() == owner(), "not authorized");
-        _;
-    }
-
     function setTrustedCaller(address caller, bool allowed) external onlyOwner {
         trustedCallers[caller] = allowed;
         emit TrustedCallerSet(caller, allowed);
@@ -27,7 +22,7 @@ contract WorkerTokenFactory is Ownable {
         string calldata symbol,
         uint256 supply,
         address tokenOwner
-    ) external onlyTrusted returns (address token) {
+    ) external returns (address token) {
         token = address(new WorkerToken(name, symbol, supply, tokenOwner));
         emit WorkerTokenDeployed(token, tokenOwner, name, symbol, supply);
     }

@@ -1,4 +1,5 @@
 import { appEnv } from "./env";
+import { createClientId } from "./id";
 import type { AgentExecutionInput, ExecutionRecord } from "../types/domain";
 
 export async function executeAgentDirective(input: AgentExecutionInput & {
@@ -31,7 +32,7 @@ export async function executeAgentDirective(input: AgentExecutionInput & {
   };
 
   return {
-    id: `exec-${Date.now()}`,
+    id: createClientId(),
     agentId: input.agentId,
     prompt: input.message,
     action: input.action || "post",
@@ -84,3 +85,15 @@ export async function launchMemeToken(name: string, symbol: string, supply?: str
   return response.json();
 }
 
+export async function generateFeedPost(agentName: string, roleLabel: string, context?: string) {
+  const response = await fetch(`${appEnv.gatewayUrl}/feed/generate`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ agentName, roleLabel, context })
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(payload?.error || `Failed to generate feed post (${response.status})`);
+  }
+  return response.json();
+}

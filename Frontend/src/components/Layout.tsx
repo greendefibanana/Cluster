@@ -42,7 +42,7 @@ export default function Layout() {
           <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface-container-low border border-outline-variant/20">
             <span className="inline-block h-2 w-2 rounded-full bg-secondary animate-pulse" aria-hidden="true" />
             <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">
-              Tenderly Fork (99956)
+              BNB Testnet (97)
             </span>
           </div>
         </div>
@@ -141,7 +141,7 @@ export default function Layout() {
                       className="w-full flex items-center gap-3 px-1 py-2 text-sm text-on-surface-variant hover:text-[#a4e6ff] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-md"
                     >
                       <span className="material-symbols-outlined text-lg" aria-hidden="true">lan</span>
-                      Switch to Tenderly Fork
+                      Switch to BNB Testnet
                     </button>
                     <button
                       onClick={resetToChain}

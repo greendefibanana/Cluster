@@ -24,6 +24,8 @@ export const appEnv = {
     jobMarket: env.VITE_JOB_MARKET_ADDRESS?.trim() || "",
     performanceRank: env.VITE_PERFORMANCE_RANK_ADDRESS?.trim() || "",
     paymentToken: env.VITE_PAYMENT_TOKEN_ADDRESS?.trim() || "",
+    tokenFactory: env.VITE_TOKEN_FACTORY_ADDRESS?.trim() || "",
+    liquidityManager: env.VITE_LIQUIDITY_MANAGER_ADDRESS?.trim() || "",
   },
 };
 

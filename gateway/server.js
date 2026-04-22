@@ -3,17 +3,15 @@ import express from "express";
 import cors from "cors";
 import fs from "fs";
 import path from "path";
+import { randomUUID } from "crypto";
 import { ethers } from "ethers";
+import { createClient } from "@supabase/supabase-js";
 
 /* ---------- startup validation ---------- */
 if (!process.env.BSC_TESTNET_RPC_URL) {
   console.error("FATAL: BSC_TESTNET_RPC_URL is required");
   process.exit(1);
 }
-if (!process.env.DEPLOYER_PRIVATE_KEY) {
-  console.warn("WARNING: DEPLOYER_PRIVATE_KEY not set — /meme/launch will fail");
-}
-
 /* ---------- load deployment addresses ---------- */
 let deployment = null;
 try {
@@ -23,6 +21,86 @@ try {
 } catch {
   console.warn("WARNING: deployments/bsc-testnet.json not found — deploy contracts first");
 }
+
+function loadEnvOverrides(...pathsToRead) {
+  return pathsToRead.reduce((acc, filePath) => {
+    try {
+      if (fs.existsSync(filePath)) {
+        const parsed = Object.fromEntries(
+          fs.readFileSync(filePath, "utf8")
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter((line) => line && !line.startsWith("#") && line.includes("="))
+            .map((line) => {
+              const separator = line.indexOf("=");
+              return [line.slice(0, separator), line.slice(separator + 1)];
+            })
+        );
+        return { ...acc, ...parsed };
+      }
+    } catch {
+      // Ignore local env parse failures and fall back to process.env.
+    }
+    return acc;
+  }, {});
+}
+
+function readConfig(envOverrides, key) {
+  return process.env[key] || envOverrides[key] || "";
+}
+
+function isTruthy(value) {
+  return ["1", "true", "yes", "on"].includes(String(value || "").toLowerCase());
+}
+
+const envOverrides = loadEnvOverrides(
+  path.join(process.cwd(), ".env.local"),
+  path.join(process.cwd(), "Frontend", ".env"),
+  path.join(process.cwd(), "Frontend", ".env.local")
+);
+
+const supabaseUrl = readConfig(envOverrides, "SUPABASE_URL") || readConfig(envOverrides, "VITE_SUPABASE_URL");
+const supabaseKey =
+  readConfig(envOverrides, "SUPABASE_SERVICE_ROLE_KEY") ||
+  readConfig(envOverrides, "SUPABASE_ANON_KEY") ||
+  readConfig(envOverrides, "VITE_SUPABASE_ANON_KEY");
+const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
+const autoFeedEnabled = isTruthy(readConfig(envOverrides, "AUTO_FEED_ENABLED"));
+const autoFeedIntervalMs = Number(readConfig(envOverrides, "AUTO_FEED_INTERVAL_MS") || 3_600_000);
+const autoFeedInitialDelayMs = Number(readConfig(envOverrides, "AUTO_FEED_INITIAL_DELAY_MS") || autoFeedIntervalMs);
+
+const feedPersonas = [
+  {
+    agentId: "1",
+    authorName: "Nexus Prime",
+    authorHandle: "0x4A5B...a227",
+    avatarUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuAcmGHTKEvr-GaJNXJktNXvai6DPGr8ek6wiccqqS_cqKEVOBRZGEjTC-Mf8cAQUMwkCA5WSamGnXWglBYfao1f8r2E_ezJRBquSgkVz6am1Jy7nt6mgNeAdyEzxYS8UZBJHFFVpqOfl-qX5w4t7hmIbyUD4bU9ctkX-pepoZdw1CwjrPp8EJ1c1cAeajEI3gCrD7K9fOmkszE8VR8DAuR1TKtSicOJkI7cTtxURnFvFOwqoHfx_eMGuv0ZiWYWH3H0OrcLVktSkow",
+    roleLabel: "Arch-Mage of Arbitrage & Liquidity Pooling",
+    score: 94,
+    mode: "yield",
+    tbaAddress: "0x7F4a4D219b8D6D3fA32C4d8A0Cce799592B19011",
+  },
+  {
+    agentId: "2",
+    authorName: "Cypher Ghost",
+    authorHandle: "0x8B35...9614",
+    avatarUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuBlliEfqEu8pxop9pHqtMIV9rgzOVQ5sMc7R6nmUVrLvctTNDoxnfx3fSOBjLtQgo3YcXFkMK7dHcnK2lTB8RlSgSTowq14cqAN6MEucjhfsRwvqRQWc3aixuWaXFBA9Mx8BGddLCOs9pXWwXTJoeB-q1teFMu_Z3YZO9E1IseIqKtFPlQX_k977MnWfNfAHMub9degz19sxevQMqrlzHzIyWj-bTnCxxyV_feBXNQa-jgvI0PJaRtKyDI0Iv81lUTkhtUdLK1lIbU",
+    roleLabel: "Master of MEV Extraction",
+    score: 88,
+    mode: "yield",
+    tbaAddress: "0x2A813A0878B1cB2586713E308C16B944934d2F82",
+  },
+  {
+    agentId: "3",
+    authorName: "Sight-3",
+    authorHandle: "0x3D4F...a940",
+    avatarUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuCYZyCPKnXCd38xXdNOifS6Xy0TZGV-9u4QoQXwUynrtEzKY0oOWAwBjk7Iv2gvkwZTmDwlXHLOmMXin0IoiqU_UGVYTWujRqxHqlpv9O1ubU0TVcyuAeeBp91kgF7pjn50FNP5Bwo93XvuNswQND94o_djkKBMJMaFldLM15sKzi6q1niBSlkNPPisaDkOp39pplzfvAVj8dNBcSkWIU8jd4pShc3RV3e2DS3BLSTDgC7WFUQAxPV4OdiMs2gdlnmT20h_6n0OTJs",
+    roleLabel: "Data Oracle of Narrative Rotation",
+    score: 91,
+    mode: "social",
+    tbaAddress: "0x9d7F14aC9C1E815dEa4B950532296B95f4F4A807",
+  },
+];
 
 const app = express();
 app.use(cors());
@@ -246,6 +324,10 @@ app.post("/meme/launch", async (req, res) => {
       return res.status(400).json({ error: "name and symbol required" });
     }
 
+    return res.status(410).json({
+      error: "Server-side meme launch is disabled. Use connected-wallet launch from the frontend.",
+    });
+
     const key = process.env.DEPLOYER_PRIVATE_KEY;
     if (!key) {
       return res.status(500).json({ error: "DEPLOYER_PRIVATE_KEY not configured on server" });
@@ -361,10 +443,104 @@ app.post("/meme/launch", async (req, res) => {
   }
 });
 
+/* ============================================================
+   FEED LOOP: /feed/generate
+   Social agent — generates a feed post based on context
+   ============================================================ */
+app.post("/feed/generate", async (req, res) => {
+  try {
+    const { agentName, roleLabel, context } = req.body;
+    const userMessage = context ? `Market context: ${context}\nAgent Name: ${agentName}\nRole: ${roleLabel}\nCreate a post.` : `Agent Name: ${agentName}\nRole: ${roleLabel}\nCreate a new post about current market or strategy.`;
+    const result = await callDGrid("social", userMessage, "generate_post");
+    return res.json({ result });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 /* ---------- serve dashboard ---------- */
 app.use("/dashboard", express.static("dashboard"));
 
 /* ---------- helper functions ---------- */
+
+function randomChartPoints() {
+  return Array.from({ length: 7 }, () => Math.floor(Math.random() * 80) + 20);
+}
+
+async function persistGeneratedFeedPost(persona, context) {
+  if (!supabase) {
+    throw new Error("Supabase not configured for gateway auto feed");
+  }
+
+  const userMessage = context
+    ? `Market context: ${context}\nAgent Name: ${persona.authorName}\nRole: ${persona.roleLabel}\nCreate a post.`
+    : `Agent Name: ${persona.authorName}\nRole: ${persona.roleLabel}\nCreate a new post about current market or strategy.`;
+  const result = await callDGrid("social", userMessage, "generate_post");
+  const createdAt = new Date().toISOString();
+
+  const row = {
+    id: randomUUID(),
+    agent_id: persona.agentId,
+    author_name: persona.authorName,
+    author_handle: persona.authorHandle,
+    avatar_url: persona.avatarUrl,
+    role_label: persona.roleLabel,
+    score: persona.score,
+    mode: persona.mode,
+    content: result.content || "Generated content",
+    insight_title: result.insightTitle || null,
+    strategy_summary: result.strategySummary || "",
+    tags: Array.isArray(result.tags) ? result.tags : [],
+    likes: 0,
+    comments_count: 0,
+    shares: 0,
+    chart_points: randomChartPoints(),
+    created_at: createdAt,
+    tba_address: persona.tbaAddress,
+    capability_tag: "creative_content",
+  };
+
+  const { error } = await supabase.from("feed_posts").insert(row);
+  if (error) {
+    throw error;
+  }
+
+  console.log(`Auto feed post created for ${persona.authorName} at ${createdAt}`);
+}
+
+function startAutoFeedLoop() {
+  if (!autoFeedEnabled) {
+    return;
+  }
+
+  if (!supabase) {
+    console.warn("WARNING: AUTO_FEED_ENABLED is set, but Supabase is not configured for the gateway");
+    return;
+  }
+
+  const tick = async () => {
+    try {
+      const persona = feedPersonas[Math.floor(Math.random() * feedPersonas.length)];
+      await persistGeneratedFeedPost(persona);
+    } catch (error) {
+      console.error("Auto feed generation failed:", error.message);
+    }
+  };
+
+  console.log(`Auto feed enabled; generating one shared post every ${autoFeedIntervalMs} ms`);
+
+  if (autoFeedInitialDelayMs <= 0) {
+    void tick();
+  } else {
+    setTimeout(() => {
+      void tick();
+    }, autoFeedInitialDelayMs);
+  }
+
+  setInterval(() => {
+    void tick();
+  }, autoFeedIntervalMs);
+}
 
 async function getSkillsForBackpack(skillNftAddress, tbaAddress) {
   const contract = new ethers.Contract(skillNftAddress, skillAbi, provider);
@@ -580,4 +756,6 @@ function pickModelForSkill(skillType) {
 const port = Number(process.env.GATEWAY_PORT || 3000);
 app.listen(port, () => {
   console.log(`DGrid gateway listening on ${port}`);
+  startAutoFeedLoop();
 });
+

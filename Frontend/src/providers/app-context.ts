@@ -1,5 +1,5 @@
 import { createContext } from "react";
-import type { AppBootstrap, ExecutionRecord, LoadStatus } from "../types/domain";
+import type { AppBootstrap, ExecutionRecord, FeedMode, LoadStatus } from "../types/domain";
 import type { EIP6963ProviderDetail } from "../lib/web3";
 
 export interface WalletState {
@@ -16,6 +16,7 @@ export interface AppContextValue extends AppBootstrap {
   discoveredProviders: EIP6963ProviderDetail[];
   refreshApp: () => Promise<void>;
   likePost: (postId: string) => Promise<void>;
+  generatePostForFeed: (mode?: FeedMode) => Promise<void>;
   addComment: (postId: string, body: string) => Promise<void>;
   dismissNotification: (notificationId: string) => Promise<void>;
   executeAgent: (input: { agentId: string; message: string; action?: string }) => Promise<ExecutionRecord>;

@@ -2,11 +2,12 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { formatRelativeTime } from "../lib/format";
 import { useAppContext } from "../hooks/useAppContext";
-import { fetchMemeAlpha, generateMemeConcept, generateMemeImage, launchMemeToken } from "../lib/gateway";
+import { fetchMemeAlpha, generateMemeConcept, generateMemeImage } from "../lib/gateway";
+import { launchMemeTokenWithConnectedWallet } from "../lib/web3";
 
 export default function AgentEditor() {
   const navigate = useNavigate();
-  const { agents, executionHistory, executeAgent } = useAppContext();
+  const { agents, executionHistory, executeAgent, wallet } = useAppContext();
   const [activeTab, setActiveTab] = useState<"chat" | "memory">("chat");
   const [selectedAgentId, setSelectedAgentId] = useState(agents[0]?.id ?? "");
   const [draft, setDraft] = useState("Draft a strategy thread for a BNB-native volatility setup.");
@@ -54,7 +55,14 @@ export default function AgentEditor() {
         setDraft("/launch");
       } else if (trimmed.startsWith("/launch")) {
         if (!concept) throw new Error("No concept generated yet.");
-        const res = await launchMemeToken(concept.name, concept.ticker, "1000000000000000000000000000", false);
+        if (!wallet.account) throw new Error("Connect your wallet to launch a token.");
+        const res = await launchMemeTokenWithConnectedWallet(
+          wallet.account,
+          concept.name,
+          concept.ticker,
+          "1000000000000000000000000000",
+          false
+        );
         setLaunchResult(res);
         setDraft("");
       } else {
@@ -195,7 +203,7 @@ export default function AgentEditor() {
                       <li><code>/scan</code> - Find alpha/theses</li>
                       <li><code>/concept [num]</code> - Generate lore & tokenomics</li>
                       <li><code>/image</code> - Generate visual assets</li>
-                      <li><code>/launch</code> - Deploy to Tenderly Forknet</li>
+                      <li><code>/launch</code> - Deploy with connected wallet</li>
                     </ul>
                   </div>
                 </div>

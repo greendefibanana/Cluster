@@ -1,4 +1,4 @@
-import { createPublicClient, custom, http, parseAbi, createWalletClient } from "viem";
+import { createPublicClient, custom, decodeEventLog, http, parseAbi, parseEther, parseUnits, createWalletClient } from "viem";
 import { bscTestnet } from "viem/chains";
 import { appEnv, runtimeMode } from "./env";
 
@@ -36,6 +36,14 @@ const skillNftAbi = parseAbi([
   "function balanceOf(address account, uint256 id) view returns (uint256)",
   "function publicMintSkill(uint256 skillId, uint256 amount) external",
   "function setApprovalForAll(address operator, bool approved) external"
+]);
+const tokenFactoryAbi = parseAbi([
+  "function deployToken(string name, string symbol, uint256 supply, address tokenOwner) returns (address)",
+  "event WorkerTokenDeployed(address indexed token, address indexed owner, string name, string symbol, uint256 supply)"
+]);
+const workerTokenAbi = parseAbi(["function approve(address spender, uint256 amount) returns (bool)"]);
+const liquidityManagerAbi = parseAbi([
+  "function seedLiquidityWithNative(address token, uint256 amountTokenDesired, uint256 amountTokenMin, uint256 amountNativeMin, address lpRecipient, uint256 deadline) payable returns (uint256, uint256, uint256)"
 ]);
 
 export interface EIP6963ProviderDetail {
@@ -109,7 +117,7 @@ export async function switchToConfiguredChain(): Promise<void> {
       params: [
         {
           chainId: hexChainId,
-          chainName: "Tenderly Fork (99956)",
+          chainName: "BNB Smart Chain Testnet",
           nativeCurrency: configuredChain.nativeCurrency,
           rpcUrls: appEnv.rpcUrl ? [appEnv.rpcUrl] : configuredChain.rpcUrls.default.http,
           blockExplorerUrls: [appEnv.explorerBaseUrl],
@@ -387,7 +395,7 @@ export async function equipAgentSkill(ownerAddress: string, agentId: string, ski
     chain: configuredChain,
   });
 
-  // Small delay to let the approval transaction settle if needed, but tenderly fork is usually fast.
+  // Small delay to let the approval transaction settle if needed, but BSC testnet is usually fast.
   // Equip the skill
   const hash = await walletClient.writeContract({
     address: appEnv.contracts.skillManager as `0x${string}`,
@@ -399,6 +407,134 @@ export async function equipAgentSkill(ownerAddress: string, agentId: string, ski
   });
 
   return hash;
+}
+
+export interface MemeLaunchResult {
+  step: "launch";
+  tokenAddress: string | null;
+  name: string;
+  symbol: string;
+  supply: string;
+  txHash: string;
+  deployer: string;
+  liquiditySeeded: boolean;
+  liquidityTxHash?: string;
+  liquidityError?: string;
+}
+
+function parseSupplyInWei(supply?: string): bigint {
+  if (!supply || !supply.trim()) {
+    return parseUnits("1000000000", 18);
+  }
+
+  const normalized = supply.trim();
+  if (!/^\d+$/.test(normalized)) {
+    throw new Error("Supply must be a whole-number wei string");
+  }
+
+  return BigInt(normalized);
+}
+
+export async function launchMemeTokenWithConnectedWallet(
+  ownerAddress: string,
+  name: string,
+  symbol: string,
+  supply?: string,
+  seedLiquidity: boolean = false
+): Promise<MemeLaunchResult> {
+  const walletClient = getWalletClient();
+  if (!walletClient || !publicClient || !appEnv.contracts.tokenFactory) {
+    throw new Error("Wallet, RPC, or token factory config is missing");
+  }
+
+  const totalSupply = parseSupplyInWei(supply);
+
+  const deployHash = await walletClient.writeContract({
+    address: appEnv.contracts.tokenFactory as `0x${string}`,
+    abi: tokenFactoryAbi,
+    functionName: "deployToken",
+    args: [name, symbol, totalSupply, ownerAddress as `0x${string}`],
+    account: ownerAddress as `0x${string}`,
+    chain: configuredChain,
+  });
+
+  const deployReceipt = await publicClient.waitForTransactionReceipt({ hash: deployHash });
+
+  let tokenAddress: string | null = null;
+  for (const log of deployReceipt.logs) {
+    if (log.address.toLowerCase() !== appEnv.contracts.tokenFactory.toLowerCase()) {
+      continue;
+    }
+
+    try {
+      const parsed = decodeEventLog({
+        abi: tokenFactoryAbi,
+        data: log.data,
+        topics: log.topics,
+      }) as { eventName: string; args: { token?: string } };
+
+      if (parsed.eventName === "WorkerTokenDeployed" && parsed.args?.token) {
+        tokenAddress = parsed.args.token;
+        break;
+      }
+    } catch {
+      // Ignore non-matching logs.
+    }
+  }
+
+  const result: MemeLaunchResult = {
+    step: "launch",
+    tokenAddress,
+    name,
+    symbol,
+    supply: totalSupply.toString(),
+    txHash: deployHash,
+    deployer: ownerAddress,
+    liquiditySeeded: false,
+  };
+
+  if (seedLiquidity && tokenAddress && appEnv.contracts.liquidityManager) {
+    try {
+      const seedAmount = parseUnits("100000000", 18);
+      const nativeAmount = parseEther("0.01");
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
+
+      const approveHash = await walletClient.writeContract({
+        address: tokenAddress as `0x${string}`,
+        abi: workerTokenAbi,
+        functionName: "approve",
+        args: [appEnv.contracts.liquidityManager as `0x${string}`, seedAmount],
+        account: ownerAddress as `0x${string}`,
+        chain: configuredChain,
+      });
+      await publicClient.waitForTransactionReceipt({ hash: approveHash });
+
+      const liquidityHash = await walletClient.writeContract({
+        address: appEnv.contracts.liquidityManager as `0x${string}`,
+        abi: liquidityManagerAbi,
+        functionName: "seedLiquidityWithNative",
+        args: [
+          tokenAddress as `0x${string}`,
+          seedAmount,
+          0n,
+          0n,
+          ownerAddress as `0x${string}`,
+          deadline,
+        ],
+        value: nativeAmount,
+        account: ownerAddress as `0x${string}`,
+        chain: configuredChain,
+      });
+      await publicClient.waitForTransactionReceipt({ hash: liquidityHash });
+
+      result.liquiditySeeded = true;
+      result.liquidityTxHash = liquidityHash;
+    } catch (error) {
+      result.liquidityError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  return result;
 }
 
 export async function fetchOwnedSkills(ownerAddress: string) {

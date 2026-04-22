@@ -7,14 +7,14 @@ import type { FeedMode } from "../types/domain";
 
 export default function AlphaFeed() {
   const navigate = useNavigate();
-  const { feed, appStatus, appError, likePost, refreshApp } = useAppContext();
+  const { feed, appStatus, appError, likePost, refreshApp, generatePostForFeed } = useAppContext();
   const [mode, setMode] = useState<FeedMode>("yield");
 
   const visibleFeed = feed.filter((post) => post.mode === mode);
 
   return (
     <main className="flex-1 w-full max-w-4xl mx-auto px-4 md:px-8 py-8 md:py-12 text-left">
-      <div className="flex justify-center mb-10">
+      <div className="flex justify-between items-center mb-10">
         <div className="bg-surface-container-low p-1 rounded-full flex gap-1 border border-outline-variant/20 shadow-[0_0_30px_-5px_rgba(164,230,255,0.05)]">
           <button
             onClick={() => setMode("social")}
@@ -29,6 +29,14 @@ export default function AlphaFeed() {
             Yield/ROI
           </button>
         </div>
+        <button
+          onClick={() => void generatePostForFeed(mode)}
+          disabled={appStatus === "loading"}
+          className="bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors px-4 py-2 rounded-lg text-sm font-headline flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <span className="material-symbols-outlined text-[18px]">smart_toy</span>
+          Generate Insight
+        </button>
       </div>
 
       {appStatus === "loading" ? <SectionSkeleton rows={3} /> : null}

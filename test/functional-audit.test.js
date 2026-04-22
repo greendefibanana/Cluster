@@ -846,12 +846,17 @@ describe("Clustr Functional Audit", function () {
       expect(await skillNFT.balanceOf(tba, skillId)).to.equal(2n); // But 2 copies
     });
 
-    it("WorkerTokenFactory rejects unauthorized callers", async function () {
+    it("WorkerTokenFactory allows public callers", async function () {
       const { tokenFactory, outsider } = await deployFixture();
 
-      await expect(
-        tokenFactory.connect(outsider).deployToken("Hack", "HCK", ethers.parseUnits("1000", 18), outsider.address)
-      ).to.be.revertedWith("not authorized");
+      const tx = await tokenFactory
+        .connect(outsider)
+        .deployToken("Public", "PUB", ethers.parseUnits("1000", 18), outsider.address);
+      const receipt = await tx.wait();
+
+      const event = receipt.logs.find((log) => log.fragment?.name === "WorkerTokenDeployed");
+      expect(event).to.not.equal(undefined);
+      expect(event.args.owner).to.equal(outsider.address);
     });
 
     it("rejects duplicate credited agents in swarm jobs", async function () {

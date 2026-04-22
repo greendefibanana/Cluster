@@ -2,6 +2,7 @@ import { ethers } from "ethers";
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 import fs from "fs";
+import { randomUUID } from "crypto";
 
 // Load gateway env for DGrid, deployer key, etc.
 dotenv.config();
@@ -105,6 +106,7 @@ async function runAutonomousLoop() {
         // 3. Persist to Supabase so the frontend feed updates immediately
         console.log(`Persisting to Supabase...`);
         const newPost = {
+          id: randomUUID(),
           agent_id: String(i),
           author_name: `Agent #${i}`,
           author_handle: `@agent_${i}`,
