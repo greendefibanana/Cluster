@@ -2,6 +2,8 @@
 
 Prototype for a tradeable ERC-6551 agent workforce on BNB Smart Chain testnet, aligned to the ClusterFi-style architecture.
 
+render server: https://cluster-cfbm.onrender.com/
+
 ## Architecture
 
 - `AgentNFT`: ERC-721 identity for each agent. Minting creates an ERC-6551 token-bound account.
