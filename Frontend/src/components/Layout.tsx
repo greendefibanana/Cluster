@@ -34,7 +34,7 @@ export default function Layout() {
       <header className="flex justify-between items-center w-full px-6 py-4 max-w-full docked top-0 sticky z-50 bg-[#131314]/80 backdrop-blur-xl border-b border-[#3c494e]/20 shadow-[0_4px_30px_rgba(0,0,0,0.1)] hidden md:flex">
         <div className="flex items-center gap-4">
           <Link
-            to="/"
+            to="/overview"
             className="flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-lg"
           >
             <img src="/logotype.svg" alt="Kinetic Vault" className="h-10 w-auto" />
@@ -42,16 +42,16 @@ export default function Layout() {
           <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface-container-low border border-outline-variant/20">
             <span className="inline-block h-2 w-2 rounded-full bg-secondary animate-pulse" aria-hidden="true" />
             <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">
-              BNB Testnet (97)
+              Mantle Home Chain
             </span>
           </div>
         </div>
         <div className="flex items-center gap-6">
           <nav className="flex gap-4 lg:gap-6 font-['Space_Grotesk'] tracking-tight">
-            <Link className={`transition-all duration-300 px-3 py-2 rounded-md ${path === '/' ? 'text-[#a4e6ff] font-bold bg-white/5' : 'text-[#e5e2e3]/60 hover:bg-[#a4e6ff]/10 hover:text-[#a4e6ff]'}`} to="/">Feed</Link>
-            <Link className={`transition-all duration-300 px-3 py-2 rounded-md ${path === '/overview' ? 'text-[#a4e6ff] font-bold bg-white/5' : 'text-[#e5e2e3]/60 hover:bg-[#a4e6ff]/10 hover:text-[#a4e6ff]'}`} to="/overview">Overview</Link>
+            <Link className={`transition-all duration-300 px-3 py-2 rounded-md ${path === '/' || path === '/overview' ? 'text-[#a4e6ff] font-bold bg-white/5' : 'text-[#e5e2e3]/60 hover:bg-[#a4e6ff]/10 hover:text-[#a4e6ff]'}`} to="/overview">Overview</Link>
             <Link className={`transition-all duration-300 px-3 py-2 rounded-md ${path === '/agents' ? 'text-[#a4e6ff] font-bold bg-white/5' : 'text-[#e5e2e3]/60 hover:bg-[#a4e6ff]/10 hover:text-[#a4e6ff]'}`} to="/agents">Agents</Link>
             <Link className={`transition-all duration-300 px-3 py-2 rounded-md ${path === '/skills' ? 'text-[#a4e6ff] font-bold bg-white/5' : 'text-[#e5e2e3]/60 hover:bg-[#a4e6ff]/10 hover:text-[#a4e6ff]'}`} to="/skills">Skills</Link>
+            <Link className={`transition-all duration-300 px-3 py-2 rounded-md ${path === '/sovereign-accounts' || path === '/strategy-accounts' ? 'text-[#a4e6ff] font-bold bg-white/5' : 'text-[#e5e2e3]/60 hover:bg-[#a4e6ff]/10 hover:text-[#a4e6ff]'}`} to="/sovereign-accounts">Sovereign</Link>
 
             <div className="relative group">
               <button className="flex items-center gap-1 transition-all duration-300 px-3 py-2 rounded-md text-[#e5e2e3]/60 hover:bg-[#a4e6ff]/10 hover:text-[#a4e6ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background">
@@ -60,7 +60,6 @@ export default function Layout() {
               <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-64 bg-[#1c1b1c] border border-[#3c494e]/20 rounded-lg shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 z-[60] py-2">
                 <div className="px-4 py-1 text-[10px] uppercase tracking-widest text-[#a4e6ff]/40 font-bold text-left">Analytics & Social</div>
                 <Link className="block px-4 py-2 text-sm text-[#e5e2e3]/60 hover:text-[#a4e6ff] hover:bg-white/5 text-left" to="/rankings">Global Rankings</Link>
-                <Link className="block px-4 py-2 text-sm text-[#e5e2e3]/60 hover:text-[#a4e6ff] hover:bg-white/5 text-left" to="/bazaar-hub">Bazaar Hub</Link>
                 <Link className="block px-4 py-2 text-sm text-[#e5e2e3]/60 hover:text-[#a4e6ff] hover:bg-white/5 text-left" to="/swarm-wars">Swarm Wars</Link>
 
                 <div className="px-4 py-1 mt-2 text-[10px] uppercase tracking-widest text-[#a4e6ff]/40 font-bold text-left">Management</div>
@@ -170,7 +169,7 @@ export default function Layout() {
               <span className="material-symbols-outlined" aria-hidden="true">{showMobileMenu ? "close" : "menu"}</span>
             </button>
             <Link
-              to="/"
+              to="/overview"
               className="flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-lg"
             >
               <img src="/logotype.svg" alt="Kinetic Vault" className="h-8 w-auto" />
@@ -187,16 +186,15 @@ export default function Layout() {
         {showMobileMenu ? (
           <div className="absolute top-full left-0 w-full bg-[#1c1b1c] border-b border-[#3c494e]/30 shadow-2xl animate-in slide-in-from-top-4 duration-300 overflow-y-auto max-h-[calc(100vh-80px)]">
             <nav className="flex flex-col p-4 font-['Space_Grotesk']">
-              <Link onClick={closeMobileMenu} className={`px-4 py-3 rounded-md mb-1 ${path === '/' ? 'text-[#a4e6ff] font-bold bg-white/5' : 'text-[#e5e2e3]/60'}`} to="/">Feed</Link>
-              <Link onClick={closeMobileMenu} className={`px-4 py-3 rounded-md mb-1 ${path === '/overview' ? 'text-[#a4e6ff] font-bold bg-white/5' : 'text-[#e5e2e3]/60'}`} to="/overview">Overview</Link>
+              <Link onClick={closeMobileMenu} className={`px-4 py-3 rounded-md mb-1 ${path === '/' || path === '/overview' ? 'text-[#a4e6ff] font-bold bg-white/5' : 'text-[#e5e2e3]/60'}`} to="/overview">Overview</Link>
               <Link onClick={closeMobileMenu} className={`px-4 py-3 rounded-md mb-1 ${path === '/agents' ? 'text-[#a4e6ff] font-bold bg-white/5' : 'text-[#e5e2e3]/60'}`} to="/agents">Agents</Link>
               <Link onClick={closeMobileMenu} className={`px-4 py-3 rounded-md mb-4 ${path === '/skills' ? 'text-[#a4e6ff] font-bold bg-white/5' : 'text-[#e5e2e3]/60'}`} to="/skills">Skills</Link>
+              <Link onClick={closeMobileMenu} className={`px-4 py-3 rounded-md mb-4 ${path === '/sovereign-accounts' || path === '/strategy-accounts' ? 'text-[#a4e6ff] font-bold bg-white/5' : 'text-[#e5e2e3]/60'}`} to="/sovereign-accounts">Sovereign Accounts</Link>
 
               <div className="h-px bg-[#3c494e]/20 mb-4"></div>
 
               <div className="px-4 py-1 text-[10px] uppercase tracking-widest text-[#a4e6ff]/40 font-bold mb-2">Analytics & Social</div>
               <Link onClick={closeMobileMenu} className="px-4 py-2 text-[#e5e2e3]/60 text-sm" to="/rankings">Global Rankings</Link>
-              <Link onClick={closeMobileMenu} className="px-4 py-2 text-[#e5e2e3]/60 text-sm" to="/bazaar-hub">Bazaar Hub</Link>
               <Link onClick={closeMobileMenu} className="px-4 py-2 text-[#e5e2e3]/60 text-sm mb-2" to="/swarm-wars">Swarm Wars</Link>
 
               <div className="px-4 py-1 text-[10px] uppercase tracking-widest text-[#a4e6ff]/40 font-bold mb-2">Management</div>
@@ -222,9 +220,9 @@ export default function Layout() {
       <Outlet />
 
       <nav className="md:hidden fixed bottom-0 left-0 w-full flex justify-around items-center px-4 py-3 pb-safe bg-[#1c1b1c]/90 backdrop-blur-2xl z-50 rounded-t-sm border-t border-[#3c494e]/20 shadow-[0_-10px_40px_rgba(164,230,255,0.06)] font-['Space_Grotesk'] text-[10px] uppercase tracking-tighter overflow-x-auto whitespace-nowrap gap-4">
-        <Link className={`flex flex-col items-center justify-center p-2 rounded-md transition-all ${path === '/' ? 'bg-gradient-to-br from-[#a4e6ff] to-[#00d1ff] text-[#131314] shadow-[0_0_15px_rgba(164,230,255,0.4)] rounded-sm px-4 py-1.5' : 'text-[#e5e2e3]/40 hover:text-[#e5e2e3]/80 hover:bg-white/5'}`} to="/">
-          <span className="material-symbols-outlined mb-1 text-[20px]" aria-hidden="true">dynamic_feed</span>
-          <span className={path === '/' ? 'font-bold' : ''}>Feed</span>
+        <Link className={`flex flex-col items-center justify-center p-2 rounded-md transition-all ${path === '/' || path === '/overview' ? 'bg-gradient-to-br from-[#a4e6ff] to-[#00d1ff] text-[#131314] shadow-[0_0_15px_rgba(164,230,255,0.4)] rounded-sm px-4 py-1.5' : 'text-[#e5e2e3]/40 hover:text-[#e5e2e3]/80 hover:bg-white/5'}`} to="/overview">
+          <span className="material-symbols-outlined mb-1 text-[20px]" aria-hidden="true">dashboard</span>
+          <span className={path === '/' || path === '/overview' ? 'font-bold' : ''}>Overview</span>
         </Link>
         <Link className={`flex flex-col items-center justify-center p-2 rounded-md transition-all ${path === '/agents' ? 'bg-gradient-to-br from-[#a4e6ff] to-[#00d1ff] text-[#131314] shadow-[0_0_15px_rgba(164,230,255,0.4)] rounded-sm px-4 py-1.5' : 'text-[#e5e2e3]/40 hover:text-[#e5e2e3]/80 hover:bg-white/5'}`} to="/agents">
           <span className="material-symbols-outlined mb-1 text-[20px]" aria-hidden="true">smart_toy</span>

@@ -12,6 +12,12 @@ async function main() {
   const registryAddress = process.env.ERC6551_REGISTRY || "0x000000006551c19487814612e58FE06813775758";
   const pancakeRouter = process.env.PANCAKE_ROUTER_V2;
   const isFork = process.env.IS_FORK === "true";
+  const network = await ethers.provider.getNetwork();
+  const isMainnetLike = network.chainId !== 31337n && network.chainId !== 97n && network.chainId !== 16602n;
+  const allowMockAdapters = process.env.ALLOW_MOCK_ADAPTERS === "true" || !isMainnetLike;
+  if (isMainnetLike && allowMockAdapters) {
+    throw new Error("Refusing mainnet-like deployment with mock adapters. Set audited adapter addresses and do not enable ALLOW_MOCK_ADAPTERS.");
+  }
 
   console.log(`Deploying with ${deployer.address}`);
 
@@ -30,6 +36,18 @@ async function main() {
   const accountImplementation = await ERC6551AgentAccount.deploy();
   await accountImplementation.waitForDeployment();
 
+  const AgentIdentityRegistry = await ethers.getContractFactory("AgentIdentityRegistry");
+  const identityRegistry = await AgentIdentityRegistry.deploy(deployer.address);
+  await identityRegistry.waitForDeployment();
+
+  const AgentReputationRegistry = await ethers.getContractFactory("AgentReputationRegistry");
+  const reputationRegistry = await AgentReputationRegistry.deploy(deployer.address);
+  await reputationRegistry.waitForDeployment();
+
+  const AgentValidationRegistry = await ethers.getContractFactory("AgentValidationRegistry");
+  const validationRegistry = await AgentValidationRegistry.deploy(deployer.address);
+  await validationRegistry.waitForDeployment();
+
   const AgentNFT = await ethers.getContractFactory("AgentNFT");
   const agentNFT = await AgentNFT.deploy(
     deployer.address,
@@ -38,6 +56,8 @@ async function main() {
     await performanceRank.getAddress()
   );
   await agentNFT.waitForDeployment();
+  await (await identityRegistry.setTrustedRegistrar(await agentNFT.getAddress(), true)).wait();
+  await (await agentNFT.setIdentityRegistry(await identityRegistry.getAddress())).wait();
 
   const SwarmNFT = await ethers.getContractFactory("SwarmNFT");
   const swarmNFT = await SwarmNFT.deploy(
@@ -46,6 +66,14 @@ async function main() {
     await accountImplementation.getAddress()
   );
   await swarmNFT.waitForDeployment();
+
+  const ClusterNFT = await ethers.getContractFactory("ClusterNFT");
+  const clusterNFT = await ClusterNFT.deploy(
+    deployer.address,
+    registryAddress,
+    await accountImplementation.getAddress()
+  );
+  await clusterNFT.waitForDeployment();
 
   const SkillNFT = await ethers.getContractFactory("SkillNFT");
   const skillNFT = await SkillNFT.deploy(deployer.address);
@@ -62,10 +90,14 @@ async function main() {
 
   // ── Define demo skills and enable public minting ──
   const skillDefs = [
-    { name: "Deployer",        skillType: "execution", capabilityTag: "deployer",         description: "Deploy ERC-20 tokens",     md: "" },
-    { name: "LP Manager",      skillType: "defi",      capabilityTag: "lp_management",    description: "Manage PancakeSwap LP",    md: "" },
-    { name: "Meme Launcher",   skillType: "execution", capabilityTag: "meme_launcher",    description: "Launch memes on Four.meme", md: "" },
-    { name: "Content Creator", skillType: "social",    capabilityTag: "creative_content", description: "Post to social feed",      md: "" },
+    { name: "Create Meme",        skillType: "execution",  capabilityTag: "CREATE_MEME",             description: "Create and launch meme instruments", md: "" },
+    { name: "Deploy LP",          skillType: "defi",       capabilityTag: "DEPLOY_LP",               description: "Deploy LP strategies", md: "" },
+    { name: "Run Yield Strategy", skillType: "defi",       capabilityTag: "RUN_YIELD_STRATEGY",     description: "Execute yield strategies", md: "" },
+    { name: "Prediction Market",  skillType: "prediction", capabilityTag: "OPEN_PREDICTION_MARKET", description: "Open prediction market instruments", md: "" },
+    { name: "Generate Alpha",     skillType: "research",   capabilityTag: "GENERATE_ALPHA",         description: "Generate alpha reports", md: "" },
+    { name: "Market Strategy",    skillType: "social",     capabilityTag: "MARKET_STRATEGY",        description: "Create strategy campaign posts", md: "" },
+    { name: "Validate PnL",       skillType: "validation", capabilityTag: "VALIDATE_PNL",           description: "Validate PnL claims and proofs", md: "" },
+    { name: "Content Creator",    skillType: "social",     capabilityTag: "creative_content",       description: "Post to social feed", md: "" },
   ];
   const skillIds = [];
   for (const s of skillDefs) {
@@ -140,6 +172,36 @@ async function main() {
 
   await (await performanceRank.setTrustedExecutor(await jobMarket.getAddress(), true)).wait();
 
+  const UserStrategyAccountFactory = await ethers.getContractFactory("UserStrategyAccountFactory");
+  const userStrategyAccountFactory = await UserStrategyAccountFactory.deploy(deployer.address);
+  await userStrategyAccountFactory.waitForDeployment();
+
+  let mockMemeAdapter = null;
+  let mockLPAdapter = null;
+  let mockYieldAdapter = null;
+  let mockPredictionMarketAdapter = null;
+
+  if (allowMockAdapters) {
+    const MockMemeAdapter = await ethers.getContractFactory("MockMemeAdapter");
+    mockMemeAdapter = await MockMemeAdapter.deploy();
+    await mockMemeAdapter.waitForDeployment();
+
+    const MockLPAdapter = await ethers.getContractFactory("MockLPAdapter");
+    mockLPAdapter = await MockLPAdapter.deploy();
+    await mockLPAdapter.waitForDeployment();
+
+    const MockYieldAdapter = await ethers.getContractFactory("MockYieldAdapter");
+    mockYieldAdapter = await MockYieldAdapter.deploy();
+    await mockYieldAdapter.waitForDeployment();
+
+    const MockPredictionMarketAdapter = await ethers.getContractFactory("MockPredictionMarketAdapter");
+    mockPredictionMarketAdapter = await MockPredictionMarketAdapter.deploy();
+    await mockPredictionMarketAdapter.waitForDeployment();
+  }
+
+  await (await reputationRegistry.setTrustedWriter(deployer.address, true)).wait();
+  await (await validationRegistry.setTrustedSubmitter(deployer.address, true)).wait();
+
   if (liquidityManager) {
     const approveSelector = new ethers.Interface([
       "function approve(address spender, uint256 amount) external returns (bool)"
@@ -155,15 +217,19 @@ async function main() {
   }
 
   const deployment = {
-    chainId: (await ethers.provider.getNetwork()).chainId.toString(),
+    chainId: network.chainId.toString(),
     deployer: deployer.address,
     registry: registryAddress,
     contracts: {
       performanceRank: await performanceRank.getAddress(),
       paymentToken: await mockPaymentToken.getAddress(),
       accountImplementation: await accountImplementation.getAddress(),
+      identityRegistry: await identityRegistry.getAddress(),
+      reputationRegistry: await reputationRegistry.getAddress(),
+      validationRegistry: await validationRegistry.getAddress(),
       agentNFT: await agentNFT.getAddress(),
       swarmNFT: await swarmNFT.getAddress(),
+      clusterNFT: await clusterNFT.getAddress(),
       skillNFT: await skillNFT.getAddress(),
       skillManager: await skillManager.getAddress(),
       socialFeed: await socialFeed.getAddress(),
@@ -171,12 +237,17 @@ async function main() {
       liquidityManager: liquidityManager ? await liquidityManager.getAddress() : null,
       fourMemeAdapter: fourMemeAdapter ? await fourMemeAdapter.getAddress() : null,
       executionHub: await executionHub.getAddress(),
-      jobMarket: await jobMarket.getAddress()
+      jobMarket: await jobMarket.getAddress(),
+      userStrategyAccountFactory: await userStrategyAccountFactory.getAddress(),
+      mockMemeAdapter: mockMemeAdapter ? await mockMemeAdapter.getAddress() : process.env.MEME_ADAPTER_ADDRESS || null,
+      mockLPAdapter: mockLPAdapter ? await mockLPAdapter.getAddress() : process.env.LP_ADAPTER_ADDRESS || null,
+      mockYieldAdapter: mockYieldAdapter ? await mockYieldAdapter.getAddress() : process.env.YIELD_ADAPTER_ADDRESS || null,
+      mockPredictionMarketAdapter: mockPredictionMarketAdapter ? await mockPredictionMarketAdapter.getAddress() : process.env.PREDICTION_MARKET_ADAPTER_ADDRESS || null
     },
     skills: skillIds.map((id, i) => ({ id: id.toString(), ...skillDefs[i] }))
   };
 
-  const networkLabel = isFork ? "bsc-fork" : "bsc-testnet";
+  const networkLabel = isFork ? "bsc-fork" : network.chainId === 16602n ? "0g-testnet" : "bsc-testnet";
   fs.mkdirSync(path.join(process.cwd(), "deployments"), { recursive: true });
   fs.writeFileSync(
     path.join(process.cwd(), "deployments", `${networkLabel}.json`),

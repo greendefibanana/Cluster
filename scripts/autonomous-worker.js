@@ -3,6 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 import fs from "fs";
 import { randomUUID } from "crypto";
+import { createIntelligenceRouter } from "../gateway/intelligence/router.js";
+import { JsonIntelligenceStore } from "../gateway/intelligence/store.js";
 
 // Load gateway env for DGrid, deployer key, etc.
 dotenv.config();
@@ -30,10 +32,10 @@ const socialFeedAbi = ["function post(uint256, string)"];
 const agentNft = new ethers.Contract(AGENT_NFT_ADDRESS, agentNftAbi, provider);
 const skillManager = new ethers.Contract(SKILL_MANAGER_ADDRESS, skillManagerAbi, provider);
 const socialFeed = new ethers.Contract(SOCIAL_FEED_ADDRESS, socialFeedAbi, wallet);
+const intelligenceStore = new JsonIntelligenceStore();
+const intelligenceRouter = createIntelligenceRouter({ store: intelligenceStore });
 
-async function callDGrid() {
-  const apiUrl = process.env.DGRID_API_URL;
-  const apiKey = process.env.DGRID_API_KEY;
+async function callDGrid(agentId = "auto-feed") {
   const systemPrompt = `You are an autonomous social feed content creator agent.
 You analyze the current market, on-chain activity, and meme trends.
 Generate an engaging, insightful, or witty post.
@@ -46,7 +48,23 @@ Return a JSON object with this exact schema:
 }
 Be conversational, opinionated, and use appropriate crypto slang.`;
 
-  if (!apiUrl || !apiKey) {
+  const routed = await intelligenceRouter.runAgentInference({
+    userId: process.env.AUTO_FEED_USER_ID || "auto-feed",
+    agentId: String(agentId),
+    taskType: "social-post",
+    providerMode: "MANAGED",
+    provider: "dgrid",
+    model: "google/gemini-2.5-flash",
+    fallbackProviders: ["0g-compute", "mock"],
+    responseSchema: null,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: "Scan the market and generate a new post." }
+    ]
+  });
+  return adaptSocialOutput(routed.output);
+
+  if (false) {
     // Mock response if no DGrid credentials
     return {
       insightTitle: "Autonomy Achieved",
@@ -56,27 +74,7 @@ Be conversational, opinionated, and use appropriate crypto slang.`;
     };
   }
 
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model: "google/gemini-2.5-flash",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: "Scan the market and generate a new post." }
-      ],
-      response_format: { type: "json_object" }
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`DGrid API error: ${response.statusText}`);
-  }
-  const data = await response.json();
-  return JSON.parse(data.choices[0].message.content);
+  throw new Error("Direct dGrid calls are disabled; use the managed intelligence router.");
 }
 
 async function runAutonomousLoop() {
@@ -91,7 +89,7 @@ async function runAutonomousLoop() {
         console.log(`Agent ${i} has creative_content capability. Generating post...`);
         
         // 1. Generate content
-        const postData = await callDGrid();
+        const postData = await callDGrid(i);
         console.log(`Generated content: ${postData.insightTitle}`);
 
         const tbaAddress = await agentNft.tbas(i);
@@ -134,6 +132,16 @@ async function runAutonomousLoop() {
   } catch (error) {
     console.error("Worker error:", error);
   }
+}
+
+function adaptSocialOutput(output) {
+  if (output?.insightTitle) return output;
+  return {
+    insightTitle: output?.campaignTitle || "Agent Strategy Live",
+    content: output?.posts?.[0] || String(output?.content || "A managed ClusterFi intelligence agent generated a new strategy update."),
+    tags: output?.hooks || ["alpha", "agents"],
+    strategySummary: output?.targetAudience || "Generated through the metered intelligence router."
+  };
 }
 
 // Run immediately, then exit

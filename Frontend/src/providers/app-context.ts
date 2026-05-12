@@ -28,6 +28,19 @@ export interface AppContextValue extends AppBootstrap {
   placeBid: (jobId: string, providerKind: number, providerId: string) => Promise<void>;
   acceptBid: (jobId: string, bidIndex: number, budget: bigint) => Promise<void>;
   depositFunds: (targetId: string, isSwarm: boolean, amount: string, currency: "BNB" | "x402") => Promise<void>;
+  createAndDepositStrategyAccount: (input: {
+    approvedExecutor: string;
+    strategyId: string;
+    instrumentType?: string;
+    amount: string;
+    maxSlippageBps?: number;
+  }) => Promise<void>;
+  addFundsToStrategyAccount: (accountAddress: string, amount: string) => Promise<void>;
+  pauseStrategyAccount: (accountAddress: string) => Promise<void>;
+  resumeStrategyAccount: (accountAddress: string) => Promise<void>;
+  revokeStrategyExecutor: (accountAddress: string) => Promise<void>;
+  withdrawStrategyAccount: (accountAddress: string, amount: string) => Promise<void>;
+  closeStrategyAccount: (accountAddress: string) => Promise<void>;
   assignAgentToSwarm: (agentId: string, swarmTbaAddress: string) => Promise<void>;
   removeAgentFromSwarm: (swarmTbaAddress: string, agentId: string) => Promise<void>;
 }

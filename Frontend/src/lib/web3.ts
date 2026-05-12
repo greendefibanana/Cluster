@@ -1,7 +1,7 @@
-import { createPublicClient, custom, decodeEventLog, http, parseAbi, parseEther, parseUnits, createWalletClient, formatUnits, encodeFunctionData } from "viem";
+import { createPublicClient, custom, decodeEventLog, http, parseAbi, parseEther, parseUnits, createWalletClient, formatUnits, encodeFunctionData, keccak256, stringToBytes } from "viem";
 import { bscTestnet } from "viem/chains";
 import { appEnv, runtimeMode } from "./env";
-import type { JobListing, Bid } from "../types/domain";
+import type { JobListing, Bid, UserStrategyAccount } from "../types/domain";
 
 const configuredChain = { ...bscTestnet, id: appEnv.chainId };
 
@@ -53,6 +53,31 @@ const tokenFactoryAbi = parseAbi([
   "event WorkerTokenDeployed(address indexed token, address indexed owner, string name, string symbol, uint256 supply)"
 ]);
 const workerTokenAbi = parseAbi(["function approve(address spender, uint256 amount) returns (bool)", "function allowance(address owner, address spender) view returns (uint256)"]);
+const erc20Abi = parseAbi([
+  "function approve(address spender, uint256 amount) returns (bool)",
+  "function allowance(address owner, address spender) view returns (uint256)",
+  "function balanceOf(address owner) view returns (uint256)",
+]);
+const strategyAccountFactoryAbi = parseAbi([
+  "function createStrategyAccount(address user, address approvedAgentOrCluster, bytes32 strategyId, (address asset, uint256 maxAllocation, uint256 maxSlippageBps, address[] allowedAdapters) config) external returns (address account)",
+  "function predictAccountAddress(address user, address approvedAgentOrCluster, bytes32 strategyId, address asset) view returns (address)",
+  "function getUserAccounts(address user) view returns (address[])",
+]);
+const userStrategyAccountAbi = parseAbi([
+  "function deposit(uint256 amount) external",
+  "function withdraw(uint256 amount) external",
+  "function pause() external",
+  "function resume() external",
+  "function revokeExecutor() external",
+  "function close() external",
+  "function owner() view returns (address)",
+  "function approvedExecutor() view returns (address)",
+  "function asset() view returns (address)",
+  "function strategyId() view returns (bytes32)",
+  "function maxAllocation() view returns (uint256)",
+  "function maxSlippageBps() view returns (uint256)",
+  "function active() view returns (bool)",
+]);
 const liquidityManagerAbi = parseAbi([
   "function seedLiquidityWithNative(address token, uint256 amountTokenDesired, uint256 amountTokenMin, uint256 amountNativeMin, address lpRecipient, uint256 deadline) payable returns (uint256, uint256, uint256)"
 ]);
@@ -357,6 +382,229 @@ export function getWalletClient() {
 
 export function getPublicClient() {
   return publicClient;
+}
+
+export function strategyIdToBytes32(strategyId: string): `0x${string}` {
+  if (/^0x[0-9a-fA-F]{64}$/.test(strategyId)) {
+    return strategyId as `0x${string}`;
+  }
+  return keccak256(stringToBytes(strategyId || "clusterfi-strategy"));
+}
+
+export function adapterForInstrument(instrumentType?: string): string {
+  const adapter =
+    instrumentType === "meme"
+      ? appEnv.contracts.mockMemeAdapter
+      : instrumentType === "lp"
+        ? appEnv.contracts.mockLpAdapter
+        : instrumentType === "prediction"
+          ? appEnv.contracts.mockPredictionMarketAdapter
+          : appEnv.contracts.mockYieldAdapter;
+
+  if (!adapter) {
+    throw new Error(`No strategy adapter configured for ${instrumentType || "yield"}`);
+  }
+  return adapter;
+}
+
+export async function createUserStrategyAccount(
+  ownerAddress: string,
+  approvedExecutor: string,
+  strategyId: string,
+  instrumentType: string | undefined,
+  maxAllocationAmount: string,
+  maxSlippageBps = 100
+) {
+  const walletClient = getWalletClient();
+  if (!walletClient || !publicClient || !appEnv.contracts.userStrategyAccountFactory || !appEnv.contracts.paymentToken) {
+    throw new Error("Strategy account factory or payment token is not configured");
+  }
+
+  const adapter = adapterForInstrument(instrumentType);
+  const strategyHash = strategyIdToBytes32(strategyId);
+  const asset = appEnv.contracts.paymentToken as `0x${string}`;
+  const maxAllocation = parseUnits(maxAllocationAmount, 18);
+  const predicted = await (publicClient as any).readContract({
+    address: appEnv.contracts.userStrategyAccountFactory as `0x${string}`,
+    abi: strategyAccountFactoryAbi,
+    functionName: "predictAccountAddress",
+    args: [ownerAddress as `0x${string}`, approvedExecutor as `0x${string}`, strategyHash, asset],
+  });
+
+  const hash = await walletClient.writeContract({
+    address: appEnv.contracts.userStrategyAccountFactory as `0x${string}`,
+    abi: strategyAccountFactoryAbi,
+    functionName: "createStrategyAccount",
+    args: [
+      ownerAddress as `0x${string}`,
+      approvedExecutor as `0x${string}`,
+      strategyHash,
+      {
+        asset,
+        maxAllocation,
+        maxSlippageBps: BigInt(maxSlippageBps),
+        allowedAdapters: [adapter as `0x${string}`],
+      },
+    ],
+    account: ownerAddress as `0x${string}`,
+    chain: configuredChain,
+  });
+  await publicClient.waitForTransactionReceipt({ hash });
+  return { accountAddress: predicted as string, txHash: hash, adapter };
+}
+
+export async function depositToUserStrategyAccount(ownerAddress: string, accountAddress: string, amount: string) {
+  const walletClient = getWalletClient();
+  if (!walletClient || !publicClient || !appEnv.contracts.paymentToken) {
+    throw new Error("Wallet, RPC, or payment token is not configured");
+  }
+
+  const parsedAmount = parseUnits(amount, 18);
+  const allowance = (await (publicClient as any).readContract({
+    address: appEnv.contracts.paymentToken as `0x${string}`,
+    abi: erc20Abi,
+    functionName: "allowance",
+    args: [ownerAddress as `0x${string}`, accountAddress as `0x${string}`],
+  })) as bigint;
+
+  if (allowance < parsedAmount) {
+    const approveHash = await walletClient.writeContract({
+      address: appEnv.contracts.paymentToken as `0x${string}`,
+      abi: erc20Abi,
+      functionName: "approve",
+      args: [accountAddress as `0x${string}`, parsedAmount],
+      account: ownerAddress as `0x${string}`,
+      chain: configuredChain,
+    });
+    await publicClient.waitForTransactionReceipt({ hash: approveHash });
+  }
+
+  const hash = await walletClient.writeContract({
+    address: accountAddress as `0x${string}`,
+    abi: userStrategyAccountAbi,
+    functionName: "deposit",
+    args: [parsedAmount],
+    account: ownerAddress as `0x${string}`,
+    chain: configuredChain,
+  });
+  await publicClient.waitForTransactionReceipt({ hash });
+  return hash;
+}
+
+export async function pauseUserStrategyAccount(ownerAddress: string, accountAddress: string) {
+  return writeUserStrategyAccount(ownerAddress, accountAddress, "pause", []);
+}
+
+export async function resumeUserStrategyAccount(ownerAddress: string, accountAddress: string) {
+  return writeUserStrategyAccount(ownerAddress, accountAddress, "resume", []);
+}
+
+export async function revokeUserStrategyExecutor(ownerAddress: string, accountAddress: string) {
+  return writeUserStrategyAccount(ownerAddress, accountAddress, "revokeExecutor", []);
+}
+
+export async function withdrawFromUserStrategyAccount(ownerAddress: string, accountAddress: string, amount: string) {
+  return writeUserStrategyAccount(ownerAddress, accountAddress, "withdraw", [parseUnits(amount, 18)]);
+}
+
+export async function closeUserStrategyAccount(ownerAddress: string, accountAddress: string) {
+  return writeUserStrategyAccount(ownerAddress, accountAddress, "close", []);
+}
+
+export async function fetchUserStrategyAccounts(ownerAddress: string): Promise<UserStrategyAccount[]> {
+  if (!publicClient || !appEnv.contracts.userStrategyAccountFactory || !appEnv.contracts.paymentToken) {
+    return [];
+  }
+
+  try {
+    const accountAddresses = (await (publicClient as any).readContract({
+      address: appEnv.contracts.userStrategyAccountFactory as `0x${string}`,
+      abi: strategyAccountFactoryAbi,
+      functionName: "getUserAccounts",
+      args: [ownerAddress as `0x${string}`],
+    })) as string[];
+
+    const accounts: UserStrategyAccount[] = [];
+    for (const accountAddress of accountAddresses) {
+      const [approvedExecutor, strategyId, maxAllocation, maxSlippageBps, active, balance] = await Promise.all([
+        (publicClient as any).readContract({
+          address: accountAddress as `0x${string}`,
+          abi: userStrategyAccountAbi,
+          functionName: "approvedExecutor",
+        }),
+        (publicClient as any).readContract({
+          address: accountAddress as `0x${string}`,
+          abi: userStrategyAccountAbi,
+          functionName: "strategyId",
+        }),
+        (publicClient as any).readContract({
+          address: accountAddress as `0x${string}`,
+          abi: userStrategyAccountAbi,
+          functionName: "maxAllocation",
+        }),
+        (publicClient as any).readContract({
+          address: accountAddress as `0x${string}`,
+          abi: userStrategyAccountAbi,
+          functionName: "maxSlippageBps",
+        }),
+        (publicClient as any).readContract({
+          address: accountAddress as `0x${string}`,
+          abi: userStrategyAccountAbi,
+          functionName: "active",
+        }),
+        (publicClient as any).readContract({
+          address: appEnv.contracts.paymentToken as `0x${string}`,
+          abi: erc20Abi,
+          functionName: "balanceOf",
+          args: [accountAddress as `0x${string}`],
+        }),
+      ]);
+
+      accounts.push({
+        id: accountAddress,
+        ownerAddress,
+        accountAddress,
+        approvedExecutor,
+        executorLabel: truncateAddressForUi(approvedExecutor),
+        strategyId,
+        strategyTitle: `Strategy ${String(strategyId).slice(0, 10)}`,
+        assetSymbol: "mUSD",
+        balanceLabel: `${formatUnits(balance, 18)} mUSD`,
+        maxAllocationLabel: `${formatUnits(maxAllocation, 18)} mUSD`,
+        maxSlippageBps: Number(maxSlippageBps),
+        allowedAdapters: ["Configured adapter"],
+        status: approvedExecutor === "0x0000000000000000000000000000000000000000" ? "revoked" : active ? "active" : "paused",
+        pnlLabel: "Pending",
+        proofURI: "",
+        riskProfile: "medium",
+      });
+    }
+    return accounts;
+  } catch (error) {
+    console.error("Failed to fetch Sovereign Accounts:", error);
+    return [];
+  }
+}
+
+function truncateAddressForUi(address: string) {
+  return address.length > 10 ? `${address.slice(0, 6)}...${address.slice(-4)}` : address;
+}
+
+async function writeUserStrategyAccount(ownerAddress: string, accountAddress: string, functionName: string, args: unknown[]) {
+  const walletClient = getWalletClient();
+  if (!walletClient || !publicClient) {
+    throw new Error("Wallet or RPC is not configured");
+  }
+  const hash = await walletClient.writeContract({
+    address: accountAddress as `0x${string}`,
+    abi: userStrategyAccountAbi,
+    functionName,
+    args,
+    account: ownerAddress as `0x${string}`,
+    chain: configuredChain,
+  });
+  await publicClient.waitForTransactionReceipt({ hash });
+  return hash;
 }
 
 

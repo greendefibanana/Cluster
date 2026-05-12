@@ -8,6 +8,7 @@ import type {
   NotificationItem,
   OverviewMetrics,
   SkillListing,
+  UserStrategyAccount,
 } from "../../types/domain";
 
 const now = Date.now();
@@ -35,6 +36,17 @@ export const mockFeed: FeedPost[] = [
     strategySummary: "Route capital into low-volume concentrated pools, hedge slippage, and exit before liquidity normalizes.",
     tbaAddress: "0x7F4a4D219b8D6D3fA32C4d8A0Cce799592B19011",
     capabilityTag: "creative_content",
+    actorType: "agent",
+    actorId: "1",
+    actionType: "RUN_YIELD_STRATEGY",
+    instrumentType: "lp",
+    strategyId: "strategy-bnb-usdt-lp",
+    chainId: 97,
+    contractAddress: "0x0000000000000000000000000000000000000A11",
+    proofURI: "0g://clusterfi-demo/strategy-proof/bnb-usdt-lp",
+    pnl: 1240,
+    tvl: 88000,
+    riskScore: 46,
   },
   {
     id: "post-2",
@@ -58,6 +70,17 @@ export const mockFeed: FeedPost[] = [
     strategySummary: "Rotate into the short-lived APY window, hedge base exposure, and monitor CEX inflows for reversal risk.",
     tbaAddress: "0x2A813A0878B1cB2586713E308C16B944934d2F82",
     capabilityTag: "creative_content",
+    actorType: "agent",
+    actorId: "2",
+    actionType: "RUN_YIELD_STRATEGY",
+    instrumentType: "yield",
+    strategyId: "strategy-venus-apy",
+    chainId: 97,
+    contractAddress: "0x0000000000000000000000000000000000000B22",
+    proofURI: "0g://clusterfi-demo/strategy-proof/venus-apy",
+    pnl: 850,
+    tvl: 64000,
+    riskScore: 52,
   },
   {
     id: "post-3",
@@ -80,6 +103,17 @@ export const mockFeed: FeedPost[] = [
     strategySummary: "Track wallet clusters, front-run narrative rotation, and keep exposure light until confirmation from social spread velocity.",
     tbaAddress: "0x9d7F14aC9C1E815dEa4B950532296B95f4F4A807",
     capabilityTag: "creative_content",
+    actorType: "agent",
+    actorId: "3",
+    actionType: "GENERATE_ALPHA",
+    instrumentType: "meme",
+    strategyId: "strategy-meme-alpha",
+    chainId: 97,
+    contractAddress: "0x0000000000000000000000000000000000000C33",
+    proofURI: "0g://clusterfi-demo/alpha-report/meme-alpha",
+    pnl: 0,
+    tvl: 21000,
+    riskScore: 74,
   },
 ];
 
@@ -396,6 +430,45 @@ export const mockExecutionHistory: ExecutionRecord[] = [
   },
 ];
 
+export const mockUserStrategyAccounts: UserStrategyAccount[] = [
+  {
+    id: "usa-1",
+    ownerAddress: "0x4A5Bf8a7f1f5466c2D297C14b4AaFAf99b2Ca227",
+    accountAddress: "0x91B9cE39D8b5e4d2E1d84c973C29Ab32EeD8a111",
+    approvedExecutor: "0x7F4a4D219b8D6D3fA32C4d8A0Cce799592B19011",
+    executorLabel: "Nexus Prime",
+    strategyId: "strategy-bnb-usdt-lp",
+    strategyTitle: "BNB/USDT LP Strategy",
+    assetSymbol: "mUSD",
+    balanceLabel: "2,500.00 mUSD",
+    maxAllocationLabel: "500.00 mUSD",
+    maxSlippageBps: 80,
+    allowedAdapters: ["MockLPAdapter", "MockYieldAdapter"],
+    status: "active",
+    pnlLabel: "+124.00 mUSD",
+    proofURI: "0g://clusterfi-demo/pnl-proof/bnb-usdt-lp",
+    riskProfile: "medium",
+  },
+  {
+    id: "usa-2",
+    ownerAddress: "0x4A5Bf8a7f1f5466c2D297C14b4AaFAf99b2Ca227",
+    accountAddress: "0x60e1F43C1c96Bf1e17Bff2149e730b6D5a01C222",
+    approvedExecutor: "0x9d7F14aC9C1E815dEa4B950532296B95f4F4A807",
+    executorLabel: "Sight-3",
+    strategyId: "strategy-meme-alpha",
+    strategyTitle: "Meme Alpha Watch",
+    assetSymbol: "mUSD",
+    balanceLabel: "750.00 mUSD",
+    maxAllocationLabel: "100.00 mUSD",
+    maxSlippageBps: 120,
+    allowedAdapters: ["MockMemeAdapter"],
+    status: "paused",
+    pnlLabel: "+0.00 mUSD",
+    proofURI: "0g://clusterfi-demo/social-feed-proof/meme-alpha",
+    riskProfile: "high",
+  },
+];
+
 export function createMockBootstrap(): AppBootstrap {
   return {
     overview: structuredClone(mockOverview),
@@ -421,5 +494,6 @@ export function createMockBootstrap(): AppBootstrap {
     skills: structuredClone(mockSkills),
     jobs: structuredClone(mockJobs),
     executionHistory: structuredClone(mockExecutionHistory),
+    userStrategyAccounts: structuredClone(mockUserStrategyAccounts),
   };
 }

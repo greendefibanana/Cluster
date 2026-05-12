@@ -6,6 +6,8 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { ethers } from "ethers";
 import { createClient } from "@supabase/supabase-js";
+import { createIntelligenceRouter } from "./intelligence/router.js";
+import { JsonIntelligenceStore } from "./intelligence/store.js";
 
 /* ---------- startup validation ---------- */
 if (!process.env.BSC_TESTNET_RPC_URL) {
@@ -105,6 +107,8 @@ const feedPersonas = [
 const app = express();
 app.use(cors());
 app.use(express.json());
+const intelligenceStore = new JsonIntelligenceStore();
+const intelligenceRouter = createIntelligenceRouter({ store: intelligenceStore });
 
 /* ---------- rate-limit (simple in-memory) ---------- */
 const rateLimitMap = new Map();
@@ -230,7 +234,13 @@ app.post("/agent/execute", async (req, res) => {
     }
 
     const selectedSkill = selectBestSkill(skills, capability);
-    const llmResponse = await routeViaDGrid(selectedSkill, message, tbaAddress);
+    const llmResponse = await routeViaDGrid(selectedSkill, message, tbaAddress, {
+      userId: req.body.userId,
+      agentId: agentId.toString(),
+      providerMode: req.body.providerMode,
+      provider: req.body.provider,
+      model: req.body.model,
+    });
 
     return res.json({
       agentId: agentId.toString(),
@@ -260,7 +270,7 @@ app.post("/meme/scan", async (req, res) => {
       signals ? `Social signals: ${JSON.stringify(signals)}` : ""
     ].filter(Boolean).join("\n");
 
-    const result = await callDGrid("alpha_scout", userMessage, "scan");
+    const result = await callDGrid("alpha_scout", userMessage, "scan", req.body);
     return res.json({ step: "scan", result });
   } catch (error) {
     return res.status(500).json({ error: error.message });
@@ -279,7 +289,7 @@ app.post("/meme/concept", async (req, res) => {
     }
 
     const userMessage = `Generate a meme token concept based on this thesis:\n${JSON.stringify(thesis, null, 2)}`;
-    const result = await callDGrid("meme_creator", userMessage, "concept");
+    const result = await callDGrid("meme_creator", userMessage, "concept", req.body);
     return res.json({ step: "concept", result });
   } catch (error) {
     return res.status(500).json({ error: error.message });
@@ -451,8 +461,88 @@ app.post("/feed/generate", async (req, res) => {
   try {
     const { agentName, roleLabel, context } = req.body;
     const userMessage = context ? `Market context: ${context}\nAgent Name: ${agentName}\nRole: ${roleLabel}\nCreate a post.` : `Agent Name: ${agentName}\nRole: ${roleLabel}\nCreate a new post about current market or strategy.`;
-    const result = await callDGrid("social", userMessage, "generate_post");
+    const result = await callDGrid("social", userMessage, "generate_post", req.body);
     return res.json({ result });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/* ============================================================
+   INTELLIGENCE ROUTER: credits, config, BYOK, health, run
+   ============================================================ */
+app.post("/intelligence/users", (req, res) => {
+  try {
+    const { userId, walletAddress } = req.body;
+    if (!userId) return res.status(400).json({ error: "userId required" });
+    return res.json({ user: intelligenceStore.upsertUser({ id: userId, walletAddress }) });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/intelligence/credits/add", (req, res) => {
+  try {
+    const { userId, amount } = req.body;
+    if (!userId || !amount) return res.status(400).json({ error: "userId and amount required" });
+    return res.json({ credits: intelligenceStore.addCredits(userId, amount) });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/intelligence/credits/:userId", (req, res) => {
+  try {
+    return res.json({ credits: intelligenceStore.getCredits(req.params.userId) });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/intelligence/agents/:agentId/config", (req, res) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: "userId required" });
+    const config = intelligenceStore.setAgentConfig({ ...req.body, agentId: req.params.agentId });
+    return res.json({ config });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/intelligence/credentials", (req, res) => {
+  try {
+    const { userId, agentId, provider, apiKey, endpointUrl, metadata } = req.body;
+    if (!userId || !provider || !apiKey) return res.status(400).json({ error: "userId, provider, and apiKey required" });
+    const credential = intelligenceStore.storeProviderCredential({ userId, agentId, provider, apiKey, endpointUrl, metadata });
+    return res.json({ credential });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/intelligence/providers/:provider/health", async (req, res) => {
+  try {
+    const health = await intelligenceRouter.healthCheck(req.params.provider, req.body.mode, req.body.userId, req.body.agentId);
+    return res.json({ health });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/intelligence/run", async (req, res) => {
+  try {
+    const result = await intelligenceRouter.runAgentInference(req.body);
+    return res.json(result);
+  } catch (error) {
+    const status = error.message.includes("Insufficient intelligence credits") ? 402 : 500;
+    return res.status(status).json({ error: error.message });
+  }
+});
+
+app.get("/intelligence/usage/:userId", (req, res) => {
+  try {
+    return res.json({ usage: intelligenceStore.getUsageEvents({ userId: req.params.userId }) });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
@@ -475,7 +565,7 @@ async function persistGeneratedFeedPost(persona, context) {
   const userMessage = context
     ? `Market context: ${context}\nAgent Name: ${persona.authorName}\nRole: ${persona.roleLabel}\nCreate a post.`
     : `Agent Name: ${persona.authorName}\nRole: ${persona.roleLabel}\nCreate a new post about current market or strategy.`;
-  const result = await callDGrid("social", userMessage, "generate_post");
+  const result = await callDGrid("social", userMessage, "generate_post", { userId: "auto-feed", agentId: persona.agentId });
   const createdAt = new Date().toISOString();
 
   const row = {
@@ -618,87 +708,125 @@ function selectBestSkill(skills, capability) {
   };
 }
 
-async function callDGrid(agentType, userMessage, step) {
-  const apiUrl = process.env.DGRID_API_URL;
-  const apiKey = process.env.DGRID_API_KEY;
+async function callDGrid(agentType, userMessage, step, options = {}) {
   const model = pickModelForSkill(agentType);
   const systemPrompt = systemPrompts[agentType] || systemPrompts.default;
+  const userId = options.userId || "demo-user";
+  const agentId = options.agentId || `legacy-${agentType}`;
+  const taskType = taskTypeForLegacyAgent(agentType);
 
-  if (!apiUrl || !apiKey) {
-    return mockDGridResponse(agentType, userMessage, step);
-  }
+  const routed = await intelligenceRouter.runAgentInference({
+    userId,
+    agentId,
+    clusterId: options.clusterId,
+    workflowId: options.workflowId,
+    taskType,
+    providerMode: options.providerMode || "MANAGED",
+    provider: options.provider || "dgrid",
+    model: options.model || model,
+    fallbackProviders: options.fallbackProviders || ["0g-compute", "mock"],
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userMessage }
+    ],
+    responseSchema: null,
+    metadata: { legacyAgentType: agentType, step }
+  });
+  return adaptLegacyDGridResult(agentType, routed.output, userMessage, step);
+}
 
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userMessage }
-      ],
-      response_format: { type: "json_object" }
-    })
+async function routeViaDGrid(skill, userMessage, tbaAddress, options = {}) {
+  const model = pickModelForSkill(skill.skillType);
+  const routed = await intelligenceRouter.runAgentInference({
+    userId: options.userId || "demo-user",
+    agentId: options.agentId || `tba-${tbaAddress.toLowerCase()}`,
+    taskType: "agent-execute",
+    providerMode: options.providerMode || "MANAGED",
+    provider: options.provider || "dgrid",
+    model: options.model || model,
+    fallbackProviders: options.fallbackProviders || ["0g-compute", "mock"],
+    messages: [
+      {
+        role: "system",
+        content: systemPrompts[skill.skillType] || systemPrompts.default
+      },
+      {
+        role: "system",
+        content: `Authenticated TBA: ${tbaAddress}\nSkill Markdown:\n${skill.skillMarkdown}`
+      },
+      {
+        role: "user",
+        content: userMessage
+      }
+    ],
+    metadata: { tbaAddress, selectedSkill: skill.name }
   });
 
-  if (!response.ok) {
-    throw new Error(`DGrid error ${response.status}`);
-  }
+  return {
+    mode: routed.provider,
+    model: routed.model,
+    content: typeof routed.output === "string" ? routed.output : JSON.stringify(routed.output),
+    output: routed.output,
+    usage: routed.usage,
+    proofURI: routed.proofURI,
+    traceId: routed.traceId
+  };
+}
 
-  const data = await response.json();
-  try {
-    return JSON.parse(data.choices?.[0]?.message?.content || "{}");
-  } catch {
-    return data;
+// Legacy dGrid endpoints now route through the metered intelligence router.
+
+function taskTypeForLegacyAgent(agentType) {
+  switch (agentType) {
+    case "alpha_scout":
+      return "sleuth-alpha";
+    case "meme_creator":
+      return "meme-launch";
+    case "social":
+      return "social-post";
+    case "quant":
+    case "lp":
+      return "quant-strategy";
+    default:
+      return "agent-execute";
   }
 }
 
-async function routeViaDGrid(skill, userMessage, tbaAddress) {
-  const apiUrl = process.env.DGRID_API_URL;
-  const apiKey = process.env.DGRID_API_KEY;
-  const model = pickModelForSkill(skill.skillType);
-
-  if (!apiUrl || !apiKey) {
+function adaptLegacyDGridResult(agentType, output, userMessage, step) {
+  if (agentType === "alpha_scout" && !output?.theses) {
     return {
-      mode: "mock",
-      model,
-      content: `Mocked DGrid response for ${skill.skillType} agent ${tbaAddress}: ${userMessage}`
+      theses: [
+        {
+          rank: 1,
+          keyword: output?.suggestedInstrumentType || "agent alpha",
+          signal_strength: Number(output?.confidence || 0.66),
+          reasoning: output?.thesis || String(output?.content || userMessage).slice(0, 160),
+          verdict: "launch",
+          risk: output?.riskFactors?.[0] ? "medium" : "low",
+        },
+        { rank: 2, keyword: "social liquidity", signal_strength: 0.58, reasoning: "Fallback narrative remains investable but needs more proof.", verdict: "skip", risk: "medium" },
+        { rank: 3, keyword: "thin rotation", signal_strength: 0.44, reasoning: "Signal is weaker and should stay watchlisted.", verdict: "skip", risk: "high" },
+      ],
     };
   }
-
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        {
-          role: "system",
-          content: systemPrompts[skill.skillType] || systemPrompts.default
-        },
-        {
-          role: "system",
-          content: `Authenticated TBA: ${tbaAddress}\nSkill Markdown:\n${skill.skillMarkdown}`
-        },
-        {
-          role: "user",
-          content: userMessage
-        }
-      ]
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`DGrid error ${response.status}`);
+  if (agentType === "meme_creator" && !output?.ticker) {
+    return {
+      name: "Proof of Meme",
+      ticker: "POM",
+      lore: output?.thesis || "A meme asset born from agent-verified social alpha.",
+      launch_copy: output?.posts?.[0] || "Agent proof is in. $POM is the meme strategy you can verify before you ape.",
+      image_prompt: output?.assetsPrompt || "A high-energy mascot logo for an agent-verified meme token.",
+      risk_notes: output?.riskFactors?.join("; ") || "Demo concept only; liquidity and execution risks remain.",
+    };
   }
-
-  return response.json();
+  if (agentType === "social" && !output?.insightTitle) {
+    return {
+      insightTitle: output?.campaignTitle || "Agent Strategy Live",
+      content: output?.posts?.[0] || String(output?.content || userMessage).slice(0, 260),
+      tags: output?.hooks || ["clusterfi", "agents"],
+      strategySummary: output?.targetAudience || "Generated through the metered ClusterFi intelligence router.",
+    };
+  }
+  return output || mockDGridResponse(agentType, userMessage, step);
 }
 
 function mockDGridResponse(agentType, userMessage, step) {
@@ -755,7 +883,7 @@ function pickModelForSkill(skillType) {
 
 const port = Number(process.env.GATEWAY_PORT || 3000);
 app.listen(port, () => {
-  console.log(`DGrid gateway listening on ${port}`);
+  console.log(`ClusterFi intelligence gateway listening on ${port}`);
   startAutoFeedLoop();
 });
 

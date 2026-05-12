@@ -17,19 +17,27 @@ import Notifications from './pages/Notifications';
 import PostComments from './pages/PostComments';
 import ShareStrategy from './pages/ShareStrategy';
 import SkillDetail from './pages/SkillDetail';
+import StrategyDetail from './pages/StrategyDetail';
+import UserStrategyAccounts from './pages/UserStrategyAccounts';
+import ProofViewer from './pages/ProofViewer';
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Layout />}>
-          <Route index element={<AlphaFeed />} />
+          <Route index element={<Overview />} />
+          <Route path="feed" element={<AlphaFeed />} />
           <Route path="overview" element={<Overview />} />
           <Route path="agents" element={<Agents />} />
           <Route path="skills" element={<Skills />} />
           <Route path="vault" element={<Vault />} />
           <Route path="agent-detail" element={<AgentDetail />} />
           <Route path="skill-detail" element={<SkillDetail />} />
+          <Route path="strategy-detail" element={<StrategyDetail />} />
+          <Route path="sovereign-accounts" element={<UserStrategyAccounts />} />
+          <Route path="strategy-accounts" element={<UserStrategyAccounts />} />
+          <Route path="proof-viewer" element={<ProofViewer />} />
           <Route path="agent-editor" element={<AgentEditor />} />
           <Route path="basket-strategy" element={<BasketStrategy />} />
           <Route path="bidding-board" element={<BiddingBoard />} />

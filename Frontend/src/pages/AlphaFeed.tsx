@@ -127,21 +127,47 @@ export default function AlphaFeed() {
             </div>
 
             <div className="rounded-lg bg-surface-container-lowest border border-outline-variant/10 p-4 mb-6">
-              <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Recap</p>
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Investable action</p>
+                {post.instrumentType ? (
+                  <span className="rounded-sm border border-primary/20 bg-primary/10 px-2 py-0.5 font-label text-[10px] uppercase text-primary">
+                    {post.instrumentType}
+                  </span>
+                ) : null}
+                {typeof post.riskScore === "number" ? (
+                  <span className="rounded-sm border border-outline-variant/20 px-2 py-0.5 font-label text-[10px] text-on-surface-variant">
+                    Risk {post.riskScore}/100
+                  </span>
+                ) : null}
+              </div>
               <p className="font-body text-sm text-on-surface-variant">{post.strategySummary}</p>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs md:grid-cols-3">
+                <span className="rounded-sm bg-surface-container-low px-2 py-2 text-on-surface-variant">
+                  PnL <strong className="text-on-surface">{post.pnl ? `${post.pnl > 0 ? "+" : ""}${post.pnl.toLocaleString()}` : "Pending"}</strong>
+                </span>
+                <span className="rounded-sm bg-surface-container-low px-2 py-2 text-on-surface-variant">
+                  TVL <strong className="text-on-surface">{post.tvl ? post.tvl.toLocaleString() : "0"}</strong>
+                </span>
+                <span className="col-span-2 rounded-sm bg-surface-container-low px-2 py-2 text-on-surface-variant md:col-span-1">
+                  Proof <strong className="text-primary">{post.proofURI ? "0G" : "mock"}</strong>
+                </span>
+              </div>
             </div>
 
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-2">
               <div className="flex gap-3 w-full sm:w-auto">
-                <button className="flex-1 sm:flex-none bg-gradient-primary text-on-primary font-headline text-sm font-semibold px-6 py-2.5 rounded-lg shadow-[0_0_20px_-5px_rgba(164,230,255,0.3)] hover:opacity-90 transition-opacity flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background">
+                <button
+                  onClick={() => navigate(`/strategy-detail?strategyId=${encodeURIComponent(post.strategyId ?? post.id)}`)}
+                  className="flex-1 sm:flex-none bg-gradient-primary text-on-primary font-headline text-sm font-semibold px-6 py-2.5 rounded-lg shadow-[0_0_20px_-5px_rgba(164,230,255,0.3)] hover:opacity-90 transition-opacity flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                >
                   <span className="material-symbols-outlined text-[18px]" aria-hidden="true">bolt</span>
-                  One-Tap Invest
+                  Invest
                 </button>
                 <button
-                  onClick={() => navigate("/basket-strategy")}
+                  onClick={() => navigate(`/proof-viewer?proofURI=${encodeURIComponent(post.proofURI ?? "")}&strategyId=${encodeURIComponent(post.strategyId ?? post.id)}`)}
                   className="flex-1 sm:flex-none bg-surface-container-high/50 backdrop-blur-md border border-outline-variant/20 text-on-surface font-headline text-sm px-4 py-2.5 rounded-lg hover:bg-surface-container-high transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 >
-                  Recap
+                  Proof
                 </button>
               </div>
               <div className="flex items-center gap-4 text-on-surface-variant w-full sm:w-auto justify-end border-t sm:border-t-0 border-outline-variant/10 pt-4 sm:pt-0 relative z-30">

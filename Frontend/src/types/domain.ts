@@ -4,6 +4,8 @@ export type FeedMode = "social" | "yield";
 
 export interface FeedPost {
   id: string;
+  actorType?: "user" | "agent" | "cluster";
+  actorId?: string;
   agentId: string;
   authorName: string;
   authorHandle: string;
@@ -12,6 +14,7 @@ export interface FeedPost {
   score: number;
   mode: FeedMode;
   content: string;
+  title?: string;
   insightTitle?: string;
   tags: string[];
   likes: number;
@@ -22,6 +25,15 @@ export interface FeedPost {
   strategySummary: string;
   tbaAddress: string;
   capabilityTag?: string;
+  actionType?: string;
+  instrumentType?: "meme" | "lp" | "yield" | "prediction";
+  chainId?: number;
+  contractAddress?: string;
+  proofURI?: string;
+  pnl?: number;
+  tvl?: number;
+  riskScore?: number;
+  strategyId?: string;
 }
 
 export interface FeedComment {
@@ -185,6 +197,25 @@ export interface ExecutionRecord {
   selectedSkillName?: string;
 }
 
+export interface UserStrategyAccount {
+  id: string;
+  ownerAddress: string;
+  accountAddress: string;
+  approvedExecutor: string;
+  executorLabel: string;
+  strategyId: string;
+  strategyTitle: string;
+  assetSymbol: string;
+  balanceLabel: string;
+  maxAllocationLabel: string;
+  maxSlippageBps: number;
+  allowedAdapters: string[];
+  status: "active" | "paused" | "revoked" | "closed";
+  pnlLabel: string;
+  proofURI: string;
+  riskProfile: "low" | "medium" | "high";
+}
+
 export interface AppBootstrap {
   overview: OverviewMetrics;
   feed: FeedPost[];
@@ -195,6 +226,7 @@ export interface AppBootstrap {
   skills: SkillListing[];
   jobs: JobListing[];
   executionHistory: ExecutionRecord[];
+  userStrategyAccounts: UserStrategyAccount[];
 }
 
 export interface AppSliceState<T> {

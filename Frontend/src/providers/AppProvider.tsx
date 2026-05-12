@@ -4,12 +4,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { parseEther } from "viem";
-import { bscTestnet } from "viem/chains";
 import { clustrRepository } from "../lib/data/repository";
-import { runtimeMode } from "../lib/env";
+import { appEnv, runtimeMode } from "../lib/env";
 import { supabase } from "../lib/supabase";
-import { 
+import {
   connectInjectedWallet, 
   disconnectInjectedWallet, 
   switchToConfiguredChain, 
@@ -22,6 +20,13 @@ import {
   acceptBid as acceptBidWeb3, 
   assignAgentToSwarm as assignAgentToSwarmWeb3,
   removeAgentFromSwarm as removeAgentFromSwarmWeb3,
+  createUserStrategyAccount,
+  depositToUserStrategyAccount,
+  pauseUserStrategyAccount,
+  resumeUserStrategyAccount,
+  revokeUserStrategyExecutor,
+  withdrawFromUserStrategyAccount,
+  closeUserStrategyAccount,
   type EIP6963ProviderDetail 
 } from "../lib/web3";
 import { createMockBootstrap } from "../lib/data/mockData";
@@ -200,6 +205,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
           strategySummary: response.result.strategySummary || "",
           tbaAddress: agent.tbaAddress,
           capabilityTag: "creative_content",
+          actorType: "agent",
+          actorId: agent.id,
+          actionType: mode === "yield" ? "RUN_YIELD_STRATEGY" : "GENERATE_ALPHA",
+          instrumentType: mode === "yield" ? "yield" : "meme",
+          chainId: 97,
+          contractAddress: appEnv.contracts.agentNft,
+          proofURI: `0g://clusterfi-demo/social-feed-proof/${Date.now()}`,
+          pnl: 0,
+          tvl: 0,
+          riskScore: mode === "yield" ? 52 : 68,
+          strategyId: `strategy-${createClientId()}`,
         };
         
         console.log("Adding new post to feed:", newPost);
@@ -358,77 +374,80 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function depositFunds(targetId: string, isSwarm: boolean, amount: string, currency: "BNB" | "x402") {
+  async function depositFunds() {
+    throw new Error("Direct deposits to agent or cluster TBAs are disabled. Open a non-custodial Sovereign Account from a strategy post instead.");
+  }
+
+  async function createAndDepositStrategyAccount(input: {
+    approvedExecutor: string;
+    strategyId: string;
+    instrumentType?: string;
+    amount: string;
+    maxSlippageBps?: number;
+  }) {
     if (!wallet.account) throw new Error("Wallet not connected");
-    const target = isSwarm 
-      ? data.swarms.find((s) => s.id === targetId)
-      : data.agents.find((a) => a.id === targetId);
-    
-    if (!target) throw new Error(`Selected ${isSwarm ? "swarm" : "agent"} not found`);
-    
     setAppStatus("loading");
     try {
-      const walletClient = getWalletClient();
-      const publicClient = getPublicClient();
-      if (!walletClient || !publicClient) throw new Error("Wallet client not available");
-
-      let hash;
-
-      if (currency === "BNB") {
-        hash = await walletClient.sendTransaction({
-          account: wallet.account as `0x${string}`,
-          to: target.tbaAddress as `0x${string}`,
-          value: parseEther(amount),
-          chain: bscTestnet,
-        });
-      } else {
-        // x402 deposit logic: approve and transfer or just transfer to TBA
-        // Assuming we just transfer directly to TBA for now
-        const tokenAddress = appEnv.contracts.paymentToken;
-        if (!tokenAddress) throw new Error("Payment token contract not configured");
-
-        hash = await walletClient.writeContract({
-          address: tokenAddress as `0x${string}`,
-          abi: [{
-            name: "transfer",
-            type: "function",
-            stateMutability: "nonpayable",
-            inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }],
-            outputs: [{ name: "", type: "bool" }]
-          }],
-          functionName: "transfer",
-          args: [target.tbaAddress as `0x${string}`, parseEther(amount)],
-          account: wallet.account as `0x${string}`,
-          chain: bscTestnet,
-        });
-      }
-      
-      console.log(`Deposit transaction sent (${currency}):`, hash);
-      await publicClient.waitForTransactionReceipt({ hash });
-      
-      // Update local overview for instant feedback (optional but nice)
-      setData((current) => ({
-        ...current,
-        overview: {
-          ...current.overview,
-          recentLogs: [
-            {
-              id: `log-dep-${Date.now()}`,
-              kind: "deposit",
-              title: `Deposited ${amount} ${currency} to ${target.name}`,
-              createdAt: new Date().toISOString(),
-              valueLabel: `+${amount}`
-            },
-            ...current.overview.recentLogs
-          ]
-        }
-      }));
-      
+      const result = await createUserStrategyAccount(
+        wallet.account,
+        input.approvedExecutor,
+        input.strategyId,
+        input.instrumentType,
+        input.amount,
+        input.maxSlippageBps ?? 100
+      );
+      await depositToUserStrategyAccount(wallet.account, result.accountAddress, input.amount);
+      await refreshApp({ silent: true });
       setAppStatus("success");
     } catch (error) {
-      setAppError(error instanceof Error ? error.message : "Deposit failed");
+      setAppError(error instanceof Error ? error.message : "Strategy account setup failed");
       setAppStatus("error");
+      throw error;
     }
+  }
+
+  async function addFundsToStrategyAccount(accountAddress: string, amount: string) {
+    if (!wallet.account) throw new Error("Wallet not connected");
+    setAppStatus("loading");
+    try {
+      await depositToUserStrategyAccount(wallet.account, accountAddress, amount);
+      await refreshApp({ silent: true });
+      setAppStatus("success");
+    } catch (error) {
+      setAppError(error instanceof Error ? error.message : "Could not add funds to Sovereign Account");
+      setAppStatus("error");
+      throw error;
+    }
+  }
+
+  async function pauseStrategyAccount(accountAddress: string) {
+    if (!wallet.account) throw new Error("Wallet not connected");
+    await pauseUserStrategyAccount(wallet.account, accountAddress);
+    await refreshApp({ silent: true });
+  }
+
+  async function resumeStrategyAccount(accountAddress: string) {
+    if (!wallet.account) throw new Error("Wallet not connected");
+    await resumeUserStrategyAccount(wallet.account, accountAddress);
+    await refreshApp({ silent: true });
+  }
+
+  async function revokeStrategyExecutor(accountAddress: string) {
+    if (!wallet.account) throw new Error("Wallet not connected");
+    await revokeUserStrategyExecutor(wallet.account, accountAddress);
+    await refreshApp({ silent: true });
+  }
+
+  async function withdrawStrategyAccount(accountAddress: string, amount: string) {
+    if (!wallet.account) throw new Error("Wallet not connected");
+    await withdrawFromUserStrategyAccount(wallet.account, accountAddress, amount);
+    await refreshApp({ silent: true });
+  }
+
+  async function closeStrategyAccount(accountAddress: string) {
+    if (!wallet.account) throw new Error("Wallet not connected");
+    await closeUserStrategyAccount(wallet.account, accountAddress);
+    await refreshApp({ silent: true });
   }
 
   async function assignAgentToSwarm(agentId: string, swarmTbaAddress: string) {
@@ -487,6 +506,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     placeBid,
     acceptBid,
     depositFunds,
+    createAndDepositStrategyAccount,
+    addFundsToStrategyAccount,
+    pauseStrategyAccount,
+    resumeStrategyAccount,
+    revokeStrategyExecutor,
+    withdrawStrategyAccount,
+    closeStrategyAccount,
     assignAgentToSwarm,
     removeAgentFromSwarm,
   };

@@ -3,7 +3,6 @@ import { readStorage, writeStorage } from "../storage";
 import { supabase } from "../supabase";
 import { appEnv, runtimeMode } from "../env";
 import { createClientId } from "../id";
-import { fetchAgentsForOwner, fetchSwarmsForOwner } from "../web3";
 import type {
   AgentExecutionInput,
   AppBootstrap,
@@ -18,7 +17,13 @@ const STORAGE_KEY = "clustr-app-state";
 type PersistedState = AppBootstrap;
 
 function loadPersistedState(): PersistedState {
-  return readStorage<PersistedState>(STORAGE_KEY, createMockBootstrap());
+  const fallback = createMockBootstrap();
+  const stored = readStorage<PersistedState>(STORAGE_KEY, fallback);
+  return {
+    ...fallback,
+    ...stored,
+    userStrategyAccounts: stored.userStrategyAccounts ?? fallback.userStrategyAccounts,
+  };
 }
 
 function persistState(state: PersistedState): void {
@@ -175,7 +180,7 @@ async function tryLoadSupabaseData(baseState: PersistedState): Promise<Persisted
 }
 
 async function tryEnrichFromChain(state: PersistedState, ownerAddress?: string): Promise<PersistedState> {
-  const { publicClient, fetchAgentsForOwner, fetchSwarmsForOwner, fetchJobs } = await import("../web3");
+  const { publicClient, fetchAgentsForOwner, fetchSwarmsForOwner, fetchJobs, fetchUserStrategyAccounts } = await import("../web3");
   if (!runtimeMode.hasRpc) {
     return state;
   }
@@ -183,10 +188,11 @@ async function tryEnrichFromChain(state: PersistedState, ownerAddress?: string):
   const nextState = structuredClone(state);
   
   try {
-    const [liveAgents, liveSwarms, liveJobs] = await Promise.all([
+    const [liveAgents, liveSwarms, liveJobs, liveStrategyAccounts] = await Promise.all([
       ownerAddress ? fetchAgentsForOwner(ownerAddress) : Promise.resolve([]),
       ownerAddress ? fetchSwarmsForOwner(ownerAddress) : Promise.resolve([]),
-      fetchJobs(publicClient)
+      fetchJobs(publicClient),
+      ownerAddress ? fetchUserStrategyAccounts(ownerAddress) : Promise.resolve([])
     ]);
 
     if (liveAgents.length > 0) {
@@ -206,6 +212,12 @@ async function tryEnrichFromChain(state: PersistedState, ownerAddress?: string):
       ...liveJobs,
       ...mockJobs.filter((mockJob) => !liveJobs.some((lj) => lj.id === mockJob.id || lj.id === mockJob.id.replace("mock-", "")))
     ];
+    if (liveStrategyAccounts.length > 0) {
+      nextState.userStrategyAccounts = mergeById(
+        nextState.userStrategyAccounts,
+        liveStrategyAccounts,
+      );
+    }
   } catch (error) {
     console.error("Failed to read from chain:", error);
   }
