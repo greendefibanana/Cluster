@@ -14,6 +14,8 @@ async function deploy(name, args = []) {
 async function main() {
   const [deployer] = await ethers.getSigners();
   const chainId = Number((await ethers.provider.getNetwork()).chainId);
+  const isMantleMainnet = chainId === 5000;
+  const allowMockBridge = process.env.ALLOW_MOCK_BRIDGE === "true" && !isMantleMainnet;
   console.log(`Deploying Mantle-native ClusterFi modules to ${network.name} (${chainId}) from ${deployer.address}`);
 
   const registry = await deploy("SovereignAccountRegistry", [deployer.address]);
@@ -31,8 +33,11 @@ async function main() {
   const predictionMarketAdapter = await deploy("PredictionMarketAdapter");
 
   const supportedChains = [chainId, 1, 56, 8453, 42161, 7565164, 999999999];
-  const mockBridgeAdapter = await deploy("MockBridgeAdapter", [supportedChains]);
+  const mockBridgeAdapter = allowMockBridge ? await deploy("MockBridgeAdapter", [supportedChains]) : null;
   const acrossBridgeAdapter = await deploy("AcrossBridgeAdapter", [deployer.address, process.env.ACROSS_SPOKE_POOL || ethers.ZeroAddress, supportedChains]);
+  if (isMantleMainnet) {
+    await (await acrossBridgeAdapter.setSimulationMode(false)).wait();
+  }
   const acrossIntentExecutor = await deploy("AcrossIntentExecutor");
   const acrossQuoteService = await deploy("AcrossQuoteService");
 
@@ -54,7 +59,7 @@ async function main() {
       hyperliquidAdapter: await hyperliquidAdapter.getAddress(),
       bnbLaunchAdapter: await bnbLaunchAdapter.getAddress(),
       predictionMarketAdapter: await predictionMarketAdapter.getAddress(),
-      mockBridgeAdapter: await mockBridgeAdapter.getAddress(),
+      mockBridgeAdapter: mockBridgeAdapter ? await mockBridgeAdapter.getAddress() : null,
       acrossBridgeAdapter: await acrossBridgeAdapter.getAddress(),
       acrossIntentExecutor: await acrossIntentExecutor.getAddress(),
       acrossQuoteService: await acrossQuoteService.getAddress(),

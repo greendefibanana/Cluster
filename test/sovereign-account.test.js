@@ -141,6 +141,13 @@ describe("Mantle-native Sovereign Account layer", function () {
     }).find((parsed) => parsed?.name === "CrossChainIntentOpened");
     const intentId = event.args.intentId;
 
+    await expect(intentEngine.markExecuted(ethers.id("missing-intent"), "0g://proof/missing", ethers.id("validation")))
+      .to.be.revertedWith("unknown intent");
+    await expect(intentEngine.markExecuted(intentId, "", ethers.id("validation")))
+      .to.be.revertedWith("proof required");
+    await expect(intentEngine.markFailed(intentId, "0g://proof/failed", ethers.ZeroHash))
+      .to.be.revertedWith("validation required");
+
     await expect(intentEngine.markExecuted(intentId, "0g://proof/executed", ethers.id("validation")))
       .to.emit(intentEngine, "IntentStatusUpdated");
     const intent = await intentEngine.intents(intentId);

@@ -152,7 +152,7 @@ export class JsonIntelligenceStore {
     );
     this.state.providerCredentials.push(credential);
     this.save();
-    return this.maskCredential(credential);
+    return this.maskCredential(credential, apiKey);
   }
 
   getProviderCredential({ userId, agentId = null, provider }) {
@@ -166,14 +166,14 @@ export class JsonIntelligenceStore {
     };
   }
 
-  maskCredential(credential) {
+  maskCredential(credential, plaintextHint = null) {
     return {
       id: credential.id,
       userId: credential.userId,
       agentId: credential.agentId,
       provider: credential.provider,
       endpointUrl: credential.endpointUrl,
-      apiKey: maskSecret(credential.encryptedApiKey),
+      apiKey: maskSecret(plaintextHint),
       createdAt: credential.createdAt,
       updatedAt: credential.updatedAt,
     };

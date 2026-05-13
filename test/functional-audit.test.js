@@ -230,6 +230,47 @@ describe("Clustr Functional Audit", function () {
       expect(await tokenContract.balanceOf(worker.tba)).to.equal(ethers.parseUnits("1000000", 18));
     });
 
+    it("blocks denylisted selectors even if a policy allows them", async function () {
+      const { agentNFT, skillNFT, skillManager, executionHub, tokenFactory, deployer } = await deployFixture();
+
+      const master = await mintAgent(agentNFT, deployer, "Master", "orchestrator");
+      const worker = await mintAgent(agentNFT, deployer, "Worker", "deployer");
+
+      const deployerSkillId = await defineSkill(
+        skillNFT,
+        deployer,
+        "Token Deployer",
+        "deployer",
+        "deployer",
+        "# deployer"
+      );
+      await (await skillNFT.connect(deployer).setApprovalForAll(await skillManager.getAddress(), true)).wait();
+      await (await skillManager.connect(deployer).equipSkill(worker.agentId, deployerSkillId, 1)).wait();
+      await (await agentNFT.connect(deployer).transferFrom(deployer.address, master.tba, worker.agentId)).wait();
+      await authorizeTbaExecutor(master.tba, await executionHub.getAddress(), deployer);
+
+      const deployTokenCall = tokenFactory.interface.encodeFunctionData("deployToken", [
+        "DeniedCoin",
+        "DNY",
+        ethers.parseUnits("1000000", 18),
+        worker.tba
+      ]);
+      const selector = tokenFactory.interface.getFunction("deployToken").selector;
+      await (await executionHub.setSelectorDenylist(selector, true)).wait();
+
+      await expect(
+        executionHub.connect(deployer).executeWorkerAction(
+          master.agentId,
+          master.tba,
+          worker.agentId,
+          worker.tba,
+          await tokenFactory.getAddress(),
+          0,
+          deployTokenCall
+        )
+      ).to.be.revertedWith("selector denied");
+    });
+
     it("rejects execution if caller is not the master owner", async function () {
       const { agentNFT, executionHub, deployer, outsider } = await deployFixture();
 

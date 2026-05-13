@@ -29,11 +29,18 @@ export class MockBridgeAdapter {
   }
 }
 
+function isProductionRuntime() {
+  return process.env.NODE_ENV === "production" || process.env.GATEWAY_ENV === "production";
+}
+
 export class AcrossBridgeAdapter {
   constructor({ apiBaseUrl = process.env.ACROSS_API_BASE_URL || "https://app.across.to/api", simulationMode = process.env.ACROSS_SIMULATION_MODE !== "false" } = {}) {
     this.name = "across";
     this.apiBaseUrl = apiBaseUrl;
     this.simulationMode = simulationMode;
+    if (isProductionRuntime() && this.simulationMode && process.env.ALLOW_PRODUCTION_MOCKS !== "true") {
+      throw new Error("Across simulation mode is disabled in production");
+    }
   }
 
   async quote(intent) {

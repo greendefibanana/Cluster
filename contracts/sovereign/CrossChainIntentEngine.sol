@@ -31,6 +31,7 @@ contract CrossChainIntentEngine is Ownable {
     SovereignAccountRegistry public immutable registry;
     mapping(bytes32 => CrossChainIntent) public intents;
     mapping(address => bool) public executors;
+    uint256 public nextIntentNonce;
 
     event IntentCreated(bytes32 indexed intentId, address indexed account, uint256 indexed targetChain, address adapter, string proofURI);
     event IntentStatusUpdated(bytes32 indexed intentId, IntentStatus status, string proofURI, bytes32 validationHash);
@@ -43,6 +44,7 @@ contract CrossChainIntentEngine is Ownable {
     }
 
     modifier onlyAccountOrExecutor(bytes32 intentId) {
+        require(_intentExists(intentId), "unknown intent");
         require(msg.sender == intents[intentId].userSovereignAccount || executors[msg.sender], "not authorized");
         _;
     }
@@ -70,7 +72,7 @@ contract CrossChainIntentEngine is Ownable {
         require(asset != address(0), "invalid asset");
         require(amount > 0, "amount zero");
         require(adapter != address(0), "invalid adapter");
-        intentId = keccak256(abi.encode(msg.sender, sourceChainId, targetChainId, asset, amount, strategyType, adapter, block.timestamp));
+        intentId = keccak256(abi.encode(msg.sender, sourceChainId, targetChainId, asset, amount, strategyType, adapter, block.timestamp, nextIntentNonce++));
         intents[intentId] = CrossChainIntent({
             sourceChain: sourceChainId,
             targetChain: targetChainId,
@@ -93,6 +95,8 @@ contract CrossChainIntentEngine is Ownable {
         external
         onlyAccountOrExecutor(intentId)
     {
+        require(bytes(proofURI).length > 0, "proof required");
+        require(validationHash != bytes32(0), "validation required");
         require(intents[intentId].intentStatus == IntentStatus.Pending, "not pending");
         _setStatus(intentId, IntentStatus.Executed, proofURI, validationHash);
     }
@@ -101,14 +105,21 @@ contract CrossChainIntentEngine is Ownable {
         external
         onlyAccountOrExecutor(intentId)
     {
+        require(bytes(proofURI).length > 0, "proof required");
+        require(validationHash != bytes32(0), "validation required");
         require(intents[intentId].intentStatus == IntentStatus.Pending, "not pending");
         _setStatus(intentId, IntentStatus.Failed, proofURI, validationHash);
     }
 
     function cancelIntent(bytes32 intentId, string calldata proofURI) external {
+        require(_intentExists(intentId), "unknown intent");
         require(msg.sender == intents[intentId].userSovereignAccount, "not account");
         require(intents[intentId].intentStatus == IntentStatus.Pending, "not pending");
         _setStatus(intentId, IntentStatus.Cancelled, proofURI, bytes32(0));
+    }
+
+    function _intentExists(bytes32 intentId) internal view returns (bool) {
+        return intents[intentId].createdAt != 0;
     }
 
     function _setStatus(bytes32 intentId, IntentStatus status, string calldata proofURI, bytes32 validationHash) internal {

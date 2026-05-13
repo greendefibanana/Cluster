@@ -20,11 +20,13 @@ contract AgentExecutionHub is Ownable {
 
     mapping(address => mapping(bytes4 => ActionPolicy)) private _targetPolicies;
     mapping(bytes4 => ActionPolicy) private _globalPolicies;
+    mapping(bytes4 => bool) public selectorDenylist;
 
     event WorkerExecution(uint256 indexed masterAgentId, uint256 indexed workerAgentId, address indexed target, bytes data);
     event SwarmWorkerExecution(uint256 indexed swarmId, uint256 indexed workerAgentId, address indexed target, bytes data);
     event TargetPolicySet(address indexed target, bytes4 indexed selector, string capabilityTag, bool enabled);
     event GlobalPolicySet(bytes4 indexed selector, string capabilityTag, bool enabled);
+    event SelectorDenylistSet(bytes4 indexed selector, bool blocked);
 
     constructor(address agentCollectionAddress, address swarmCollectionAddress, address skillManagerAddress) {
         agentCollection = AgentNFT(agentCollectionAddress);
@@ -50,6 +52,11 @@ contract AgentExecutionHub is Ownable {
             delete _globalPolicies[selector];
         }
         emit GlobalPolicySet(selector, capabilityTag, enabled);
+    }
+
+    function setSelectorDenylist(bytes4 selector, bool blocked) external onlyOwner {
+        selectorDenylist[selector] = blocked;
+        emit SelectorDenylistSet(selector, blocked);
     }
 
     function getTargetPolicy(address target, bytes4 selector) external view returns (bool enabled, string memory capabilityTag) {
@@ -120,6 +127,7 @@ contract AgentExecutionHub is Ownable {
 
     function _enforcePolicy(address target, bytes calldata data, uint256 workerAgentId) private view {
         bytes4 selector = _selectorFromCalldata(data);
+        require(!selectorDenylist[selector], "selector denied");
         (bool enabled, string memory capabilityTag) = _resolvePolicy(target, selector);
         require(enabled, "action not allowed");
 

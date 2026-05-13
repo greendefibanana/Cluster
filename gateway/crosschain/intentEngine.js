@@ -4,12 +4,23 @@ import { createZeroGDAProvider } from "../zeroG/daProvider.js";
 import { AcrossBridgeAdapter, MockBridgeAdapter } from "./bridgeAdapters.js";
 import { adapterKindForStrategy, createChainAdapter } from "./chainAdapters.js";
 
+function isProductionRuntime() {
+  return process.env.NODE_ENV === "production" || process.env.GATEWAY_ENV === "production";
+}
+
+function crosschainExecutionDisabled() {
+  return isProductionRuntime() || process.env.DISABLE_CROSSCHAIN_EXECUTION === "true";
+}
+
 export class CrossChainIntentEngineService {
   constructor({
     zeroGStorage = createZeroGStorageProvider(process.env.ZERO_G_PROVIDER || "mock"),
     zeroGDA = createZeroGDAProvider(process.env.ZERO_G_DA_PROVIDER || "mock"),
     bridge = process.env.ACROSS_SIMULATION_MODE === "false" ? new AcrossBridgeAdapter() : new MockBridgeAdapter(),
   } = {}) {
+    if (isProductionRuntime() && bridge instanceof MockBridgeAdapter && process.env.ALLOW_PRODUCTION_MOCKS !== "true") {
+      throw new Error("MockBridgeAdapter is disabled in production");
+    }
     this.zeroGStorage = zeroGStorage;
     this.zeroGDA = zeroGDA;
     this.bridge = bridge;
@@ -39,6 +50,9 @@ export class CrossChainIntentEngineService {
   }
 
   async executeIntent(intentId) {
+    if (crosschainExecutionDisabled()) {
+      throw new Error("Cross-chain execution is disabled; intent remains pending until a verified settlement path is enabled");
+    }
     const intent = this.intents.get(intentId);
     if (!intent) throw new Error(`Intent not found: ${intentId}`);
     const chainAdapter = createChainAdapter(intent.adapter);

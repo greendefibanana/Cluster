@@ -142,6 +142,25 @@ async function main() {
   );
   await executionHub.waitForDeployment();
 
+  const deniedSelectors = [
+    ["transferOwnership", "function transferOwnership(address newOwner)"],
+    ["setTrustedCaller", "function setTrustedCaller(address caller, bool trusted)"],
+    ["setTrustedExecutor", "function setTrustedExecutor(address executor, bool trusted)"],
+    ["setTrustedWriter", "function setTrustedWriter(address writer, bool trusted)"],
+    ["setTrustedSubmitter", "function setTrustedSubmitter(address submitter, bool trusted)"],
+    ["setManager", "function setManager(address manager, bool allowed)"],
+    ["setTargetPolicy", "function setTargetPolicy(address target, bytes4 selector, string capabilityTag, bool enabled)"],
+    ["setGlobalPolicy", "function setGlobalPolicy(bytes4 selector, string capabilityTag, bool enabled)"],
+    ["setSelectorDenylist", "function setSelectorDenylist(bytes4 selector, bool blocked)"],
+    ["pause", "function pause()"],
+    ["unpause", "function unpause()"],
+    ["setPaused", "function setPaused(bool isPaused)"]
+  ];
+  for (const [name, signature] of deniedSelectors) {
+    const selector = new ethers.Interface([signature]).getFunction(name).selector;
+    await (await executionHub.setSelectorDenylist(selector, true)).wait();
+  }
+
   // ── Policies: WorkerTokenFactory ──
   await (await executionHub.setTargetPolicy(
     await tokenFactory.getAddress(),
