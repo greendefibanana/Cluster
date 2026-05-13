@@ -20,7 +20,14 @@ export default {
     }
   },
   networks: {
-    hardhat: {},
+    hardhat: {
+      chainId: 5000
+    },
+    localMantle: {
+      url: "http://127.0.0.1:8545",
+      chainId: 5000,
+      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : []
+    },
     bscTestnet: {
       url: BSC_TESTNET_RPC_URL,
       chainId: 97,

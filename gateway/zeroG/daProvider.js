@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "crypto";
+import { LocalZeroGDAProvider } from "./localProvider.js";
 
 export class MockZeroGDAProvider {
   constructor({ namespace = "clusterfi-da-demo" } = {}) {
@@ -77,5 +78,6 @@ export class RealZeroGDAProvider {
 }
 
 export function createZeroGDAProvider(mode = process.env.ZERO_G_DA_PROVIDER || "mock") {
+  if (mode === "local") return new LocalZeroGDAProvider();
   return mode === "real" ? new RealZeroGDAProvider() : new MockZeroGDAProvider();
 }

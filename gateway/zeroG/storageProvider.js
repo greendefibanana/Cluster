@@ -1,4 +1,5 @@
 import { MockZeroGProvider, RealZeroGProvider } from "../zeroGProvider.js";
+import { LocalZeroGProvider } from "./localProvider.js";
 
 export class ZeroGStorageProvider extends MockZeroGProvider {
   async uploadValidationProof(claimId, payload) {
@@ -37,5 +38,6 @@ export class RealZeroGStorageProvider extends RealZeroGProvider {
 }
 
 export function createZeroGStorageProvider(mode = process.env.ZERO_G_PROVIDER || "mock") {
+  if (mode === "local") return new LocalZeroGProvider();
   return mode === "real" ? new RealZeroGStorageProvider() : new ZeroGStorageProvider();
 }
