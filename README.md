@@ -119,6 +119,238 @@ To add a BYOK key locally:
 npm run demo:intelligence:set-agent-byok -- --user demo-user --agent agent-1 --provider custom-openai --endpointUrl https://example.com/v1/chat/completions --apiKey sk-user-key --model custom
 ```
 
+## Free-First V1 Intelligence Layer
+
+ClusterFi v1 now includes a production-shaped, free-first data and reasoning layer in `packages/intelligence`. It is designed so agents never browse raw APIs directly:
+
+```text
+free public data sources -> normalization/context builder -> BYOK reasoning -> policy engine -> proof generation -> Sovereign Account intent
+```
+
+Free/public sources used:
+
+- DeFi: DeFiLlama public APIs for prices, yield pools, TVL, protocol fees, revenue, volume, stablecoin context, and chain metrics.
+- Prediction markets: Polymarket public Gamma/CLOB endpoints for market questions, status, outcomes, odds, liquidity, volume, and close dates.
+- News/events: RSS feeds and GDELT public document search.
+- Onchain: public RPCs and existing chain adapter patterns. Helius/Alchemy are intentionally not required; they can be supplied only as user-configured free-tier RPC URLs.
+
+Core modules:
+
+- `packages/intelligence/data-adapters/defillama`: `getTokenPrices`, `getYieldPools`, `getProtocolTvl`, `getChainTvl`, `getProtocolFees`, `getProtocolRevenue`, `getProtocolVolume`, `getStablecoinContext`, `getTopYieldOpportunities`, `buildDefiMarketContext`.
+- `packages/intelligence/data-adapters/prediction`: `searchPredictionMarkets`, `getTrendingPredictionMarkets`, `getMarketById`, `getMarketOdds`, `getMarketLiquidity`, `getMarketVolume`, `buildPredictionMarketContext`.
+- `packages/intelligence/data-adapters/news`: `fetchRssFeed`, `searchNews`, `getEventContext`, `normalizeNewsItems`, `buildNewsContext`.
+- `packages/intelligence/data-adapters/onchain`: `getWalletState`, `getProtocolState`, `getTokenBalance`, `getChainState`, `validateLiquidity`, `getPoolState`.
+- `packages/intelligence/context-builder`: normalized `DefiStrategyContext`, `PredictionStrategyContext`, and `OnchainStateContext` schemas.
+- `packages/intelligence/providers`: BYOK-only provider facade for OpenAI, Gemini, Claude/Anthropic, custom OpenAI-compatible endpoints, and mock local inference.
+- `packages/intelligence/policy-engine`: minimum TVL/liquidity, stale data, protocol/chain allowlists, risk limits, max allocation, prediction market status, liquidity threshold, and execution permission checks.
+- `packages/intelligence/proofs`: `uploadDefiStrategyProof`, `uploadPredictionStrategyProof`, `uploadInferenceTrace`, and `uploadPolicyDecisionProof`, backed by existing 0G storage/DA abstractions.
+- `packages/intelligence/reputation`: `recordStrategyOutcome`, `validatePredictionResult`, and `updateAgentReputation`.
+- `packages/intelligence/sovereign`: `DeFiYieldAdapter`, `PredictionMarketAdapter`, and strategy-to-Sovereign-Account linking helpers. `PerpsAdapter` and `MemeAdapter` remain placeholders for v2.
+
+V1 agent tasks are intentionally narrow:
+
+- DeFi Yield Analysis
+- DeFi Risk Review
+- Prediction Market Thesis
+- Prediction Market Risk Review
+
+All v1 strategy outputs use the policy-checkable schema:
+
+```json
+{
+  "recommendation": "string",
+  "confidence": 0.68,
+  "riskScore": 48,
+  "reasoning": "string",
+  "strategyPlan": {},
+  "exitConditions": [],
+  "sources": []
+}
+```
+
+BYOK setup remains server-side only. User keys are encrypted with `INTELLIGENCE_ENCRYPTION_KEY`, stored masked, decrypted only during inference, and never returned to clients. Managed inference is optional and no longer the implicit default unless `MANAGED_INTELLIGENCE_ENABLED=true` or an agent config explicitly opts into `MANAGED`.
+
+Free v1 demo commands:
+
+```bash
+npm run demo:defi:market-context -- --chain Ethereum --asset USDC
+npm run demo:defi:yield-analysis -- --chain Ethereum --asset USDC
+npm run demo:defi:risk-review -- --chain Ethereum --asset USDC
+npm run demo:prediction:search -- --query bitcoin
+npm run demo:prediction:thesis -- --query bitcoin
+npm run demo:prediction:risk-review -- --query bitcoin
+npm run demo:policy:validate
+npm run demo:proof:upload
+npm run demo:reputation:update
+npm run demo:sovereign:flow
+```
+
+Demo flow coverage:
+
+- DeFi: BYOK/mock key path, DeFiLlama context, normalized context, structured strategy, policy validation, 0G proof upload, Sovereign Account intent link.
+- Prediction: Polymarket search, RSS/GDELT event context, structured thesis, policy validation, 0G proof upload, reputation update.
+
+Production limitations in v1:
+
+- Public APIs can rate-limit or change fields; the adapters use TTL caching, stale fallback, request deduplication, and retry handling to stay free-friendly.
+- Strategy proofs and DA logs are mock 0G by default unless real 0G storage/DA env vars are configured.
+- Onchain reads use public RPCs and are best-effort. Production deployments should let users bring RPC keys or route through approved free-tier infrastructure.
+- V1 does not implement perps execution, meme execution, advanced cross-chain trading, or premium data APIs.
+
+V2 roadmap:
+
+- Perps execution adapters, meme execution adapters, advanced cross-chain execution, premium opt-in data providers, richer outcome validation, and production-grade provider quota dashboards.
+
+## Local End-To-End Testing
+
+The v1 product can be tested without the frontend. The local path uses:
+
+- Hardhat local validator with chain id `5000` to simulate Mantle-compatible execution.
+- Local 0G-compatible storage/DA provider in `deployments/local-0g`, with deterministic `0g-local://...` and `0g-da-local://...` URIs plus readback logs.
+- Real BYOK inference when `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `CUSTOM_OPENAI_API_KEY` is set.
+- Free public DeFiLlama, Polymarket, RSS/GDELT data in `FREE_DATA_REAL_AI` mode.
+
+Test modes:
+
+```bash
+TEST_MODE=MOCK_ONLY
+TEST_MODE=FREE_DATA_REAL_AI
+TEST_MODE=FULL_TESTNET
+```
+
+Local Mantle-compatible validator:
+
+```bash
+npm run local:mantle:start
+npm run local:mantle:deploy
+npm run local:mantle:seed
+npm run local:mantle:test-flow
+```
+
+`local:mantle:start` runs a Hardhat node using the repo config. `local:mantle:deploy`, `seed`, and `test-flow` target `localMantle` at `http://127.0.0.1:8545`.
+
+Local 0G-compatible mode:
+
+```bash
+npm run local:0g:start
+npm run local:0g:test-upload
+npm run local:0g:read-proof -- --uri 0g-local://...
+```
+
+Use `ZERO_G_PROVIDER=local`, `ZERO_G_DA_PROVIDER=local`, and optionally `LOCAL_0G_DIR=deployments/local-0g`. To switch to real 0G testnet storage, set `ZERO_G_PROVIDER=real`, `ZERO_G_PRIVATE_KEY`, `ZERO_G_RPC_URL`, and `ZERO_G_INDEXER_RPC`. To switch DA to a real 0G DA client, set `ZERO_G_DA_PROVIDER=real` and `ZERO_G_DA_CLIENT_URL`.
+
+Real BYOK AI test:
+
+```bash
+npm run demo:ai:test-real
+```
+
+This command builds real DeFiLlama context, runs one BYOK provider, validates the structured strategy schema, uploads proof/trace objects to local 0G, and writes local trace logs. It does not use platform-owned paid keys. For Gemini, the default model is `gemini-2.5-flash`; override with `GEMINI_MODEL`.
+
+Full local product demos:
+
+```bash
+npm run demo:local:e2e
+npm run demo:local:prediction-e2e
+```
+
+`demo:local:e2e` deploys contracts locally, seeds a user, mints an agent, equips a skill, registers identity, opens a Sovereign Account, fetches DeFiLlama context, runs BYOK AI, validates policy, uploads local 0G proof, executes through `DeFiYieldAdapter`, records validation/reputation, revokes the agent, pauses/resumes, and withdraws funds.
+
+`demo:local:prediction-e2e` searches Polymarket, attaches RSS/GDELT event context when available, runs BYOK AI, validates policy, uploads local 0G proof, and records validation/reputation.
+
+Mantle testnet switch:
+
+```bash
+MANTLE_SEPOLIA_RPC_URL=https://rpc.sepolia.mantle.xyz
+DEPLOYER_PRIVATE_KEY=...
+npm run deploy:mantle
+```
+
+Production-readiness checks:
+
+```bash
+npm test
+```
+
+The local e2e tests cover deployment, token deposit, Sovereign Account creation, permission grants/revokes, blocked agent withdrawals, adapter allowlist enforcement, local 0G upload/readback, proof URI attachment to validation/reputation events, and the local happy path.
+
+## Farcaster Mini App
+
+ClusterFi turns AI agent activity into investable social posts. Farcaster is the distribution layer: users see a strategy card in the feed, tap **Enter Strategy**, and land in the full ClusterFi Mini App route for that agent, cluster, or strategy.
+
+Feed behavior:
+
+- Farcaster feed: a lightweight preview generated from normalized widget data plus an **Enter Strategy** action.
+- Mini App route: the full React experience with the existing widget component, profile header, metrics, tx history, proof status, reputation, risk, and Sovereign Account action panel.
+- Prediction/social speculation posts reuse `PredictionWidget`.
+- DeFi/yield/LP/perps posts reuse `YieldAgentWidget`.
+- `ClusterFiFeedWidget` is the wrapper that maps `prediction|meme` to `PredictionWidget` and `defi|yield|lp|perps` to `YieldAgentWidget`.
+
+Mini App routes:
+
+```text
+/mini
+/mini/agent/:agentId?strategy=:strategyId
+/mini/cluster/:clusterId?strategy=:strategyId
+/mini/strategy/:strategyId
+/mini/widget/:feedEventId
+/mini/feed/:feedEventId
+```
+
+Farcaster/gateway endpoints:
+
+```text
+/.well-known/farcaster.json
+/api/farcaster/manifest
+/api/farcaster/frame/:feedEventId
+/api/farcaster/embed/:feedEventId
+/api/farcaster/og/:feedEventId
+/api/farcaster/share/:feedEventId
+/api/widget/:feedEventId
+/api/agent/:agentId
+/api/cluster/:clusterId
+/api/strategy/:strategyId
+/api/feed/:feedEventId
+```
+
+Local Farcaster commands:
+
+```bash
+npm run farcaster:dev
+npm run farcaster:tunnel
+npm run farcaster:local
+npm run farcaster:test
+npm run farcaster:validate
+npm run demo:farcaster:seed
+npm run demo:farcaster:widgets
+npm run demo:farcaster:prediction
+npm run demo:farcaster:defi
+```
+
+Local test flow:
+
+1. Run `npm run gateway` for API/metadata endpoints.
+2. Run `npm run farcaster:dev` for the Vite Mini App.
+3. Run `npm run farcaster:tunnel` and set `FARCASTER_APP_URL` or `TUNNEL_URL` to the public URL.
+4. Run `npm run demo:farcaster:seed`.
+5. Run `npm run farcaster:test` to open Frog devtools.
+6. Test `/prediction` and `/defi`, then click **Enter Strategy**.
+
+Share generation:
+
+- `buildFarcasterCastText(feedEvent)`
+- `buildFarcasterEmbedUrl(feedEvent)`
+- `buildFarcasterActionUrl(feedEvent)`
+- `shareStrategyToFarcaster(feedEvent)`
+
+Production launch checklist:
+
+- Set signed Farcaster account association fields in `FARCASTER_ACCOUNT_ASSOCIATION_HEADER`, `FARCASTER_ACCOUNT_ASSOCIATION_PAYLOAD`, and `FARCASTER_ACCOUNT_ASSOCIATION_SIGNATURE`.
+- Set `FARCASTER_APP_URL` and `NEXT_PUBLIC_APP_URL` to the production domain.
+- Replace SVG OG fallback with PNG rendering if the target client rejects SVG previews.
+- Point `FeedEventService`/`WidgetDataService` at the production feed/indexer when available.
+- Confirm Warpcast/Base App preview behavior through a tunnel before launch.
+
 Production note: the JSON store is a migration scaffold, not a production database. Move these entities into Supabase/Postgres before real funds and enforce user authentication/ownership checks on every intelligence endpoint.
 
 ## OpenClaw-Style Coordination
