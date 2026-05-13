@@ -190,6 +190,7 @@ export default function Layout() {
               <Link onClick={closeMobileMenu} className={`px-4 py-3 rounded-md mb-1 ${path === '/agents' ? 'text-[#a4e6ff] font-bold bg-white/5' : 'text-[#e5e2e3]/60'}`} to="/agents">Agents</Link>
               <Link onClick={closeMobileMenu} className={`px-4 py-3 rounded-md mb-4 ${path === '/skills' ? 'text-[#a4e6ff] font-bold bg-white/5' : 'text-[#e5e2e3]/60'}`} to="/skills">Skills</Link>
               <Link onClick={closeMobileMenu} className={`px-4 py-3 rounded-md mb-4 ${path === '/sovereign-accounts' || path === '/strategy-accounts' ? 'text-[#a4e6ff] font-bold bg-white/5' : 'text-[#e5e2e3]/60'}`} to="/sovereign-accounts">Sovereign Accounts</Link>
+              <Link onClick={closeMobileMenu} className={`px-4 py-3 rounded-md mb-4 ${path === '/widgets' ? 'text-[#a4e6ff] font-bold bg-white/5' : 'text-[#e5e2e3]/60'}`} to="/widgets">Widgets</Link>
 
               <div className="h-px bg-[#3c494e]/20 mb-4"></div>
 

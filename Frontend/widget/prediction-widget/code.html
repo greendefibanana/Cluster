@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Kinetic Vault - Prediction Agent</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Space+Grotesk:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "secondary-container": "#9d03de",
+                        "on-surface": "#e5e2e3",
+                        "on-primary-container": "#00566a",
+                        "inverse-primary": "#00677f",
+                        "primary-fixed-dim": "#4cd6ff",
+                        "on-background": "#e5e2e3",
+                        "outline-variant": "#3c494e",
+                        "on-error-container": "#ffdad6",
+                        "error": "#ffb4ab",
+                        "on-primary-fixed": "#001f28",
+                        "surface-tint": "#4cd6ff",
+                        "surface-bright": "#3a393a",
+                        "primary": "#a4e6ff",
+                        "on-tertiary-fixed-variant": "#00513c",
+                        "on-secondary-container": "#f5d6ff",
+                        "on-surface-variant": "#bbc9cf",
+                        "surface-container-high": "#2a2a2b",
+                        "tertiary-fixed-dim": "#00e1ab",
+                        "secondary": "#e8b3ff",
+                        "tertiary": "#00f9be",
+                        "tertiary-container": "#00daa5",
+                        "primary-fixed": "#b7eaff",
+                        "on-error": "#690005",
+                        "surface-dim": "#131314",
+                        "secondary-fixed-dim": "#e8b3ff",
+                        "background": "#131314",
+                        "on-tertiary-container": "#005a42",
+                        "on-primary": "#003543",
+                        "on-tertiary-fixed": "#002116",
+                        "on-secondary": "#500074",
+                        "surface-container-highest": "#353436",
+                        "error-container": "#93000a",
+                        "surface": "#131314",
+                        "inverse-surface": "#e5e2e3",
+                        "on-secondary-fixed-variant": "#7200a3",
+                        "surface-container": "#201f20",
+                        "secondary-fixed": "#f6d9ff",
+                        "on-primary-fixed-variant": "#004e60",
+                        "inverse-on-surface": "#313031",
+                        "tertiary-fixed": "#36ffc4",
+                        "surface-container-lowest": "#0e0e0f",
+                        "outline": "#859399",
+                        "surface-variant": "#353436",
+                        "surface-container-low": "#1c1b1c",
+                        "on-tertiary": "#003828",
+                        "primary-container": "#00d1ff",
+                        "on-secondary-fixed": "#310049"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {},
+                    "fontFamily": {
+                        "headline": ["Space Grotesk", "sans-serif"],
+                        "display": ["Space Grotesk", "sans-serif"],
+                        "body": ["Inter", "sans-serif"],
+                        "label": ["Space Grotesk", "sans-serif"]
+                    },
+                    "fontSize": {}
+                },
+            },
+        }
+    </script>
+<style>
+        /* Custom grid background */
+        .bg-grid-overlay {
+            background-image: 
+                linear-gradient(to right, rgba(164, 230, 255, 0.05) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(164, 230, 255, 0.05) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+        
+        /* Subtle glow effects */
+        .glow-text-primary {
+            text-shadow: 0 0 20px rgba(164, 230, 255, 0.4);
+        }
+        .glow-text-tertiary {
+            text-shadow: 0 0 20px rgba(0, 249, 190, 0.4);
+        }
+        
+        /* Frame containment */
+        .farcaster-frame {
+            aspect-ratio: 3 / 2;
+            width: 100%;
+            max-width: 600px; /* Base width for standard frame size */
+            margin: 0 auto;
+            position: relative;
+            overflow: hidden;
+            background-color: #131314;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-surface text-on-surface font-body h-screen flex items-center justify-center p-4">
+<!-- Farcaster Frame Container (3:2 Aspect Ratio) -->
+<div class="farcaster-frame rounded-xl border border-outline-variant/20 shadow-[0_0_40px_-10px_rgba(164,230,255,0.06)] relative isolate aspect-[3/2] flex flex-col" style="aspect-ratio: 3/2; height: auto;"><!-- Background Layer: Grid & Faded Cards -->
+<div class="absolute inset-0 bg-grid-overlay opacity-20 z-0"></div>
+<div class="absolute inset-0 bg-gradient-to-b from-surface/90 via-surface/70 to-surface z-0 pointer-events-none"></div>
+<!-- Repositioned & Faded Prediction Background Elements -->
+<div class="absolute top-[15%] left-[5%] -rotate-12 opacity-[0.03] z-0 bg-surface-container-high border border-outline-variant/30 rounded-lg p-2 flex items-center gap-2">
+<span class="font-label text-[10px] text-on-surface">BTC &gt; $60k</span>
+<span class="material-symbols-outlined text-tertiary text-[10px]" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+<div class="absolute top-[20%] right-[5%] rotate-6 opacity-[0.03] z-0 bg-surface-container-high border border-outline-variant/30 rounded-lg p-2 flex items-center gap-2">
+<span class="font-label text-[10px] text-on-surface">SOL Breakout</span>
+<span class="material-symbols-outlined text-tertiary text-[10px]" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+<div class="absolute bottom-[20%] left-[10%] -rotate-6 opacity-[0.02] z-0 bg-surface-container-high border border-outline-variant/30 rounded-lg p-2 flex items-center gap-2">
+<span class="font-label text-[10px] text-on-surface">ETH Dominance</span>
+<span class="material-symbols-outlined text-tertiary text-[10px]" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+<!-- Foreground Content Layer -->
+<div class="relative z-10 w-full h-full flex flex-col justify-between p-5 sm:p-6">
+<!-- Header: Agent Stats -->
+<div class="flex justify-between items-start w-full">
+<!-- Top-left: Avatar & Rank -->
+<div class="flex items-center gap-2.5 bg-surface-container-low/40 backdrop-blur-2xl border border-outline-variant/30 rounded-xl p-1.5 pr-3 shadow-xl">
+<div class="relative">
+<img alt="AI Agent Avatar" class="w-9 h-9 rounded-full border-2 border-primary object-cover" src="https://placeholder.pics/svg/300"/>
+<div class="absolute -bottom-0.5 -right-0.5 bg-surface rounded-full p-0.5">
+<span class="material-symbols-outlined text-primary text-[8px] flex" style="font-variation-settings: 'FILL' 1;">verified</span>
+</div>
+</div>
+<div class="flex flex-col">
+<span class="font-headline font-bold text-on-surface text-xs tracking-wide leading-none mb-0.5">Nexus Protocol</span>
+<span class="font-label text-primary text-[8px] uppercase tracking-widest leading-none">Rank: Oracle</span>
+</div>
+</div>
+<!-- Top-right: Tag -->
+<div class="bg-surface-container-highest/60 backdrop-blur-xl border border-outline-variant/30 rounded-full px-2.5 py-1 flex items-center gap-1 shadow-md">
+<span class="material-symbols-outlined text-tertiary text-[10px]">bolt</span>
+<span class="font-label text-on-surface text-[10px] font-semibold tracking-wider">Alpha Bridge: 2.1x</span>
+</div>
+</div>
+<!-- Main Metric: Center Aligned -->
+<div class="flex-1 flex flex-col items-center justify-center">
+<div class="text-center relative">
+<!-- Refined background glow -->
+<div class="absolute inset-0 bg-primary/20 blur-[40px] rounded-full scale-150"></div>
+<h1 class="font-display text-5xl sm:text-6xl font-extrabold text-primary-container tracking-tighter glow-text-primary relative z-10 leading-none">
+                +69%
+            </h1>
+<p class="font-headline text-base sm:text-lg text-on-surface/90 mt-1 tracking-wide font-medium relative z-10">
+                on 5/5 Predictions
+            </p>
+</div>
+</div>
+<!-- Proof Icons Footer -->
+<div class="flex justify-center items-center gap-3 sm:gap-4 w-full">
+<!-- TVL -->
+<div class="flex items-center gap-2 bg-surface-container-low/60 backdrop-blur-2xl border border-outline-variant/30 rounded-lg px-3 py-1.5 shadow-lg">
+<span class="material-symbols-outlined text-secondary text-base" style="font-variation-settings: 'FILL' 1;">account_balance</span>
+<span class="font-label text-on-surface text-xs tracking-wide">TVL: $42.5K</span>
+</div>
+<!-- Users -->
+<div class="flex items-center gap-2 bg-surface-container-low/60 backdrop-blur-2xl border border-outline-variant/30 rounded-lg px-3 py-1.5 shadow-lg">
+<span class="material-symbols-outlined text-secondary text-base" style="font-variation-settings: 'FILL' 1;">group</span>
+<span class="font-label text-on-surface text-xs tracking-wide">128 Investors</span>
+</div>
+</div>
+</div></div>
+</body></html>

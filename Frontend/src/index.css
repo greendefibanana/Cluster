@@ -28,4 +28,30 @@
   .kinetic-gradient { background: linear-gradient(135deg, theme('colors.primary'), #0088ff); color: #000; }
   .bg-gradient-primary { background: linear-gradient(135deg, theme('colors.primary'), theme('colors.primary-container')); }
   .text-gradient-primary { background: linear-gradient(to right, theme('colors.primary'), theme('colors.primary-container')); -webkit-backdrop-clip: text; color: transparent; }
+
+  /* Widget Custom Styles */
+  .bg-grid-overlay {
+      background-image: 
+          linear-gradient(to right, rgba(164, 230, 255, 0.05) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(164, 230, 255, 0.05) 1px, transparent 1px);
+      background-size: 40px 40px;
+  }
+  
+  .glow-text-primary {
+      text-shadow: 0 0 20px rgba(164, 230, 255, 0.4);
+  }
+  .glow-text-tertiary {
+      text-shadow: 0 0 20px rgba(0, 249, 190, 0.4);
+  }
+  
+  .farcaster-frame {
+      aspect-ratio: 3 / 2;
+      width: 100%;
+      max-width: 600px;
+      margin: 0 auto;
+      position: relative;
+      overflow: hidden;
+      background-color: theme('colors.background');
+  }
 }
+

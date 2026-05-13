@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Yield Agent Widget</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "inverse-primary": "#00677f",
+                        "tertiary-fixed": "#36ffc4",
+                        "error": "#ffb4ab",
+                        "on-primary": "#003543",
+                        "surface-container-lowest": "#0e0e0f",
+                        "secondary-fixed": "#f6d9ff",
+                        "on-primary-fixed": "#001f28",
+                        "on-tertiary": "#003828",
+                        "inverse-on-surface": "#313031",
+                        "on-background": "#e5e2e3",
+                        "surface-container-highest": "#353436",
+                        "surface-container": "#201f20",
+                        "tertiary-fixed-dim": "#00e1ab",
+                        "error-container": "#93000a",
+                        "background": "#131314",
+                        "tertiary-container": "#00daa5",
+                        "on-primary-fixed-variant": "#004e60",
+                        "on-secondary-fixed-variant": "#7200a3",
+                        "outline": "#859399",
+                        "surface-variant": "#353436",
+                        "on-tertiary-fixed": "#002116",
+                        "on-tertiary-container": "#005a42",
+                        "on-error": "#690005",
+                        "on-secondary-container": "#f5d6ff",
+                        "surface-dim": "#131314",
+                        "surface-container-low": "#1c1b1c",
+                        "secondary-container": "#9d03de",
+                        "on-surface": "#e5e2e3",
+                        "on-primary-container": "#00566a",
+                        "primary-container": "#00d1ff",
+                        "surface-bright": "#3a393a",
+                        "surface": "#131314",
+                        "secondary-fixed-dim": "#e8b3ff",
+                        "on-error-container": "#ffdad6",
+                        "surface-container-high": "#2a2a2b",
+                        "primary-fixed": "#b7eaff",
+                        "on-tertiary-fixed-variant": "#00513c",
+                        "tertiary": "#00f9be",
+                        "on-surface-variant": "#bbc9cf",
+                        "outline-variant": "#3c494e",
+                        "surface-tint": "#4cd6ff",
+                        "secondary": "#e8b3ff",
+                        "primary-fixed-dim": "#4cd6ff",
+                        "on-secondary": "#500074",
+                        "primary": "#a4e6ff",
+                        "on-secondary-fixed": "#310049",
+                        "inverse-surface": "#e5e2e3"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "fontFamily": {
+                        "headline": ["Space Grotesk", "sans-serif"],
+                        "display": ["Space Grotesk", "sans-serif"],
+                        "body": ["Inter", "sans-serif"],
+                        "label": ["Space Grotesk", "sans-serif"]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-surface font-body min-h-screen flex items-center justify-center p-4">
+<!-- Farcaster Widget Container (3:2 Aspect Ratio) -->
+<!-- Assuming base width of 600px for demonstration, yielding 400px height. Can scale with max-w. -->
+<div class="relative w-full max-w-[600px] aspect-[3/2] rounded-xl overflow-hidden shadow-[0_4px_40px_-10px_rgba(164,230,255,0.06)] bg-surface-container-low border border-outline-variant/20 flex flex-col justify-between p-6">
+<!-- Background Image/Texture -->
+<div class="absolute inset-0 z-0 bg-cover opacity-60 mix-blend-luminosity" data-alt="Institutional-grade abstract background featuring isometric 3D vault blocks stacking up symmetrically. The lighting is a blend of soft cinematic blue and subtle warm gold accents, creating an atmosphere of safety and high-end financial technology. Clean, minimal geometric lines intersect across a dark, deep obsidian space. The mood is highly professional, secure, and transparent, aligning perfectly with a modern 'Kinetic Vault' dark-mode aesthetic." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuBa6UxXZVKS6ni3uZwp4rx01F3FCZb4UZ4K9530sxfkZL_RGMW9poXHR-JVUnKVJBdWsFg0mDXpl6NHjWNugBjlgUVSmj5TPF2wWRYkSxLOVZreSLHkOOOYynUx8ZbWcJ6hxmN5OPSvQHJVg9a08mH64cTABqTJgSUwLPDHOSK0vXH7xaTWRqiiwD-rpz3j5zVvPu74ExDlTga1eMKjCbA4msLAzFxOZ7JNmP43v62qib-3TwNaYQWTm9W2VHAsqHlevTra2baJ1-0'); background-position: center right;">
+</div>
+<!-- Gradient Overlay for depth -->
+<div class="absolute inset-0 z-0 bg-background/60 backdrop-blur-[2px] shadow-inner"></div>
+<!-- Header -->
+<header class="relative z-10 flex justify-between items-start w-full">
+<!-- Left: Avatar & Rank -->
+<div class="flex items-center gap-3">
+<div class="w-12 h-12 rounded-full overflow-hidden border border-outline-variant/30 shadow-[0_0_15px_-3px_rgba(164,230,255,0.3)]">
+<img alt="Agent Avatar" class="w-full h-full object-cover" data-alt="A sleek, futuristic abstract digital avatar portrait inside a circle. The image features a high-tech, algorithmic face structure rendered in glowing neon cyan lines against a deep black background. It exudes an aura of artificial intelligence and quantitative analysis, fitting perfectly within a sophisticated dark-mode 'Kinetic Vault' theme." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCM-PU9nRfQZlzxxwjH_wyAUMlyz_wqMGkBYO5zorO3pMLKPlJOzVT02rGMTIFGrVXK2dKgSXSGR4Vl2jvcGjF_2QXsEFNTC_-yChATelFx_h5eos2uEhZRNkNPvwQX7EFNPMSsajPNRYvnJANkorahYLmIj2t-jlHTVZ5CWK6ChKPETQ016UcvCZa0gp0ft0iMTwGHlrOONvhYV_6ogM4Bee9K-GugYbWAni7fhCNAnlZq5ISTcchay1ScOfXPBFI6gWYbWNnHdq8"/>
+</div>
+<div class="flex flex-col">
+<span class="font-headline font-bold text-on-surface text-lg leading-tight tracking-tight">Yield Agent Alpha</span>
+<span class="font-label text-xs text-primary/80 uppercase tracking-widest">Rank: Quant</span>
+</div>
+</div>
+<!-- Right: Badge -->
+<div class="flex items-center bg-surface-container-highest/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-primary/20 shadow-[0_0_10px_-2px_rgba(164,230,255,0.1)]">
+<span class="material-symbols-outlined text-primary text-[14px] mr-1" data-icon="bolt">bolt</span>
+<span class="font-label text-xs font-semibold text-primary uppercase tracking-wider">Alpha Bridge: 1.5x</span>
+</div>
+</header>
+<!-- Main Metric Center -->
+<main class="relative z-10 flex flex-col items-center justify-center flex-grow w-full">
+<h1 class="font-display font-extrabold text-5xl md:text-6xl text-transparent bg-clip-text bg-gradient-to-r from-[#FFD700] to-[#FFF099] drop-shadow-[0_0_20px_rgba(255,215,0,0.4)] tracking-tighter mb-2 drop-shadow-[0_0_30px_rgba(0,0,0,0.8)]">
+                22.4%
+            </h1>
+<h2 class="font-label text-sm text-on-surface-variant uppercase tracking-widest opacity-80">APY (Net Yield)</h2>
+</main>
+<!-- Footer -->
+<footer class="relative z-10 flex justify-between items-end w-full">
+<!-- Bottom-Left: TVL -->
+<div class="flex items-center gap-2 bg-surface-container/50 backdrop-blur-sm px-4 py-2 rounded-lg border border-outline-variant/15">
+<span class="material-symbols-outlined text-tertiary-fixed-dim" data-icon="shield">shield</span>
+<div class="flex flex-col">
+<span class="font-label text-[10px] text-on-surface-variant uppercase tracking-wider">TVL</span>
+<span class="font-headline font-bold text-on-surface text-base">$512K</span>
+</div>
+</div>
+<!-- Bottom-Right: Suppliers -->
+<div class="flex items-center gap-2 bg-surface-container/50 backdrop-blur-sm px-4 py-2 rounded-lg border border-outline-variant/15">
+<div class="flex flex-col items-end">
+<span class="font-label text-[10px] text-on-surface-variant uppercase tracking-wider">Suppliers</span>
+<span class="font-headline font-bold text-on-surface text-base">1.2K</span>
+</div>
+<span class="material-symbols-outlined text-secondary" data-icon="hub">hub</span>
+</div>
+</footer>
+</div>
+</body></html>

@@ -20,6 +20,9 @@ import SkillDetail from './pages/SkillDetail';
 import StrategyDetail from './pages/StrategyDetail';
 import UserStrategyAccounts from './pages/UserStrategyAccounts';
 import ProofViewer from './pages/ProofViewer';
+import WidgetsScreen from './pages/WidgetsScreen';
+import MiniApp from './pages/MiniApp';
+import MiniStrategy from './pages/MiniStrategy';
 
 function App() {
   return (
@@ -32,6 +35,7 @@ function App() {
           <Route path="agents" element={<Agents />} />
           <Route path="skills" element={<Skills />} />
           <Route path="vault" element={<Vault />} />
+          <Route path="widgets" element={<WidgetsScreen />} />
           <Route path="agent-detail" element={<AgentDetail />} />
           <Route path="skill-detail" element={<SkillDetail />} />
           <Route path="strategy-detail" element={<StrategyDetail />} />
@@ -49,6 +53,12 @@ function App() {
         </Route>
         <Route path="post-comments" element={<PostComments />} />
         <Route path="share-strategy" element={<ShareStrategy />} />
+        <Route path="mini" element={<MiniApp />} />
+        <Route path="mini/agent/:agentId" element={<MiniStrategy mode="agent" />} />
+        <Route path="mini/cluster/:clusterId" element={<MiniStrategy mode="cluster" />} />
+        <Route path="mini/strategy/:strategyId" element={<MiniStrategy mode="strategy" />} />
+        <Route path="mini/widget/:feedEventId" element={<MiniStrategy mode="widget" />} />
+        <Route path="mini/feed/:feedEventId" element={<MiniStrategy mode="feed" />} />
       </Routes>
     </BrowserRouter>
   );

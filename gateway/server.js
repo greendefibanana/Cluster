@@ -6,8 +6,25 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { ethers } from "ethers";
 import { createClient } from "@supabase/supabase-js";
+import { WalletAuthService, bearerToken, normalizeAddress } from "./auth.js";
 import { createIntelligenceRouter } from "./intelligence/router.js";
 import { JsonIntelligenceStore } from "./intelligence/store.js";
+import {
+  buildFarcasterActionUrl,
+  buildFarcasterCastText,
+  buildFarcasterEmbedUrl,
+  buildManifest,
+  buildMiniAppEmbed,
+  buildPreviewSvg,
+  getActorTxHistory,
+  getFeedEvent,
+  getReputationEvents,
+  getStrategyProofs,
+  getStrategyTxHistory,
+  getValidationStatus,
+  listFeedEvents,
+  shareStrategyToFarcaster,
+} from "./farcaster/service.js";
 
 /* ---------- startup validation ---------- */
 if (!process.env.BSC_TESTNET_RPC_URL) {
@@ -55,6 +72,10 @@ function isTruthy(value) {
   return ["1", "true", "yes", "on"].includes(String(value || "").toLowerCase());
 }
 
+function isProductionRuntime() {
+  return process.env.NODE_ENV === "production" || process.env.GATEWAY_ENV === "production";
+}
+
 const envOverrides = loadEnvOverrides(
   path.join(process.cwd(), ".env.local"),
   path.join(process.cwd(), "Frontend", ".env"),
@@ -70,6 +91,26 @@ const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabase
 const autoFeedEnabled = isTruthy(readConfig(envOverrides, "AUTO_FEED_ENABLED"));
 const autoFeedIntervalMs = Number(readConfig(envOverrides, "AUTO_FEED_INTERVAL_MS") || 3_600_000);
 const autoFeedInitialDelayMs = Number(readConfig(envOverrides, "AUTO_FEED_INITIAL_DELAY_MS") || autoFeedIntervalMs);
+const productionRuntime = isProductionRuntime();
+const requireAuth = productionRuntime || isTruthy(readConfig(envOverrides, "GATEWAY_REQUIRE_AUTH"));
+const allowProductionMocks = isTruthy(readConfig(envOverrides, "ALLOW_PRODUCTION_MOCKS"));
+const authService = new WalletAuthService({ secret: readConfig(envOverrides, "GATEWAY_AUTH_SECRET") });
+
+if (requireAuth) {
+  authService.assertReady();
+}
+
+if (productionRuntime) {
+  if (allowProductionMocks) {
+    throw new Error("Refusing to start production gateway with ALLOW_PRODUCTION_MOCKS=true");
+  }
+  if (!readConfig(envOverrides, "INTELLIGENCE_ENCRYPTION_KEY")) {
+    throw new Error("INTELLIGENCE_ENCRYPTION_KEY is required in production");
+  }
+  if (readConfig(envOverrides, "DEPLOYER_PRIVATE_KEY")) {
+    throw new Error("DEPLOYER_PRIVATE_KEY must not be configured on the production gateway");
+  }
+}
 
 const feedPersonas = [
   {
@@ -106,9 +147,96 @@ const feedPersonas = [
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: process.env.GATEWAY_JSON_LIMIT || "64kb" }));
 const intelligenceStore = new JsonIntelligenceStore();
 const intelligenceRouter = createIntelligenceRouter({ store: intelligenceStore });
+
+function authenticate(req, res, next) {
+  if (!requireAuth) {
+    return next();
+  }
+  try {
+    const session = authService.verifySession(bearerToken(req));
+    req.auth = session;
+    return next();
+  } catch (error) {
+    return res.status(401).json({ error: error.message });
+  }
+}
+
+function requireAdmin(req, res, next) {
+  if (!productionRuntime && !requireAuth) {
+    return next();
+  }
+  const adminToken = readConfig(envOverrides, "ADMIN_API_TOKEN");
+  const provided = req.headers["x-admin-token"];
+  if (!adminToken || provided !== adminToken) {
+    return res.status(403).json({ error: "admin authorization required" });
+  }
+  return next();
+}
+
+function authenticatedUserId(req) {
+  return req.auth?.wallet || req.body?.userId || req.params?.userId;
+}
+
+function withAuthUser(req) {
+  return {
+    ...req.body,
+    userId: authenticatedUserId(req),
+  };
+}
+
+function enforceUserScope(req, requestedUserId) {
+  if (!requireAuth) {
+    return requestedUserId;
+  }
+  const wallet = req.auth?.wallet;
+  if (!wallet) {
+    throw new Error("authenticated wallet missing");
+  }
+  if (requestedUserId && normalizeUserId(requestedUserId) !== wallet) {
+    throw new Error("cannot access another user's data");
+  }
+  return wallet;
+}
+
+function normalizeUserId(value) {
+  try {
+    return normalizeAddress(value);
+  } catch {
+    return String(value || "").toLowerCase();
+  }
+}
+
+function contractAddress(name, envKey) {
+  return deployment?.contracts?.[name] || readConfig(envOverrides, envKey);
+}
+
+async function assertAgentOwner(req, agentId) {
+  if (!requireAuth || !agentId || !/^\d+$/.test(String(agentId))) {
+    return;
+  }
+  const agentNftAddress = contractAddress("agentNFT", "AGENT_NFT_ADDRESS");
+  if (!agentNftAddress) {
+    throw new Error("Agent NFT address is not configured");
+  }
+  const agentContract = new ethers.Contract(agentNftAddress, agentAbi, provider);
+  const owner = normalizeAddress(await agentContract.ownerOf(BigInt(agentId)));
+  if (owner !== req.auth.wallet) {
+    throw new Error("authenticated wallet does not own this agent");
+  }
+}
+
+if (productionRuntime) {
+  const missingContracts = [
+    ["agentNFT", "AGENT_NFT_ADDRESS"],
+    ["skillNFT", "SKILL_NFT_ADDRESS"],
+  ].filter(([name, envKey]) => !contractAddress(name, envKey));
+  if (missingContracts.length) {
+    throw new Error(`Production gateway missing contract addresses: ${missingContracts.map(([name]) => name).join(", ")}`);
+  }
+}
 
 /* ---------- rate-limit (simple in-memory) ---------- */
 const rateLimitMap = new Map();
@@ -132,11 +260,36 @@ function rateLimit(req, res, next) {
 }
 app.use(rateLimit);
 
+app.post("/auth/nonce", (req, res) => {
+  try {
+    const { address } = req.body;
+    if (!address) {
+      return res.status(400).json({ error: "address required" });
+    }
+    return res.json(authService.createNonce(address));
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+app.post("/auth/verify", (req, res) => {
+  try {
+    const { address, nonce, signature } = req.body;
+    if (!address || !nonce || !signature) {
+      return res.status(400).json({ error: "address, nonce, and signature are required" });
+    }
+    return res.json(authService.verifySignature({ address, nonce, signature }));
+  } catch (error) {
+    return res.status(401).json({ error: error.message });
+  }
+});
+
 /* ---------- provider + ABIs ---------- */
 const provider = new ethers.JsonRpcProvider(process.env.BSC_TESTNET_RPC_URL);
 
 const agentAbi = [
-  "function tbas(uint256) view returns (address)"
+  "function tbas(uint256) view returns (address)",
+  "function ownerOf(uint256 tokenId) view returns (address)"
 ];
 const skillAbi = [
   "function balanceOf(address owner, uint256 id) view returns (uint256)",
@@ -208,11 +361,17 @@ Be conversational, opinionated, and use appropriate crypto slang.`,
 /* ============================================================
    EXISTING: /agent/execute
    ============================================================ */
-app.post("/agent/execute", async (req, res) => {
+app.post("/agent/execute", authenticate, async (req, res) => {
   try {
-    const { tbaAddress, message, agentNftAddress, skillNftAddress, requiredCapability, action } = req.body;
+    const { tbaAddress, message, requiredCapability, action } = req.body;
+    const agentNftAddress = productionRuntime
+      ? contractAddress("agentNFT", "AGENT_NFT_ADDRESS")
+      : req.body.agentNftAddress || contractAddress("agentNFT", "AGENT_NFT_ADDRESS");
+    const skillNftAddress = productionRuntime
+      ? contractAddress("skillNFT", "SKILL_NFT_ADDRESS")
+      : req.body.skillNftAddress || contractAddress("skillNFT", "SKILL_NFT_ADDRESS");
     if (!tbaAddress || !message || !agentNftAddress || !skillNftAddress) {
-      return res.status(400).json({ error: "tbaAddress, message, agentNftAddress, skillNftAddress are required" });
+      return res.status(400).json({ error: "tbaAddress, message, agent NFT, and skill NFT addresses are required" });
     }
 
     const account = new ethers.Contract(tbaAddress, accountAbi, provider);
@@ -226,6 +385,12 @@ app.post("/agent/execute", async (req, res) => {
     if (expectedTba.toLowerCase() !== tbaAddress.toLowerCase()) {
       return res.status(403).json({ error: "Agent/TBA mismatch" });
     }
+    if (requireAuth) {
+      const owner = normalizeAddress(await agentContract.ownerOf(agentId));
+      if (owner !== req.auth.wallet) {
+        return res.status(403).json({ error: "authenticated wallet does not own this agent" });
+      }
+    }
 
     const skills = await getSkillsForBackpack(skillNftAddress, tbaAddress);
     const capability = requiredCapability || capabilityForAction(action);
@@ -235,11 +400,11 @@ app.post("/agent/execute", async (req, res) => {
 
     const selectedSkill = selectBestSkill(skills, capability);
     const llmResponse = await routeViaDGrid(selectedSkill, message, tbaAddress, {
-      userId: req.body.userId,
+      userId: authenticatedUserId(req),
       agentId: agentId.toString(),
-      providerMode: req.body.providerMode,
-      provider: req.body.provider,
-      model: req.body.model,
+      providerMode: productionRuntime ? undefined : req.body.providerMode,
+      provider: productionRuntime ? undefined : req.body.provider,
+      model: productionRuntime ? undefined : req.body.model,
     });
 
     return res.json({
@@ -257,7 +422,7 @@ app.post("/agent/execute", async (req, res) => {
    MEME LOOP: /meme/scan
    Alpha scout — analyses market context, returns ranked theses
    ============================================================ */
-app.post("/meme/scan", async (req, res) => {
+app.post("/meme/scan", authenticate, async (req, res) => {
   try {
     const { context, keywords, signals } = req.body;
     if (!context && !keywords) {
@@ -270,7 +435,7 @@ app.post("/meme/scan", async (req, res) => {
       signals ? `Social signals: ${JSON.stringify(signals)}` : ""
     ].filter(Boolean).join("\n");
 
-    const result = await callDGrid("alpha_scout", userMessage, "scan", req.body);
+    const result = await callDGrid("alpha_scout", userMessage, "scan", withAuthUser(req));
     return res.json({ step: "scan", result });
   } catch (error) {
     return res.status(500).json({ error: error.message });
@@ -281,7 +446,7 @@ app.post("/meme/scan", async (req, res) => {
    MEME LOOP: /meme/concept
    Creative agent — turns thesis into name/ticker/lore/copy
    ============================================================ */
-app.post("/meme/concept", async (req, res) => {
+app.post("/meme/concept", authenticate, async (req, res) => {
   try {
     const { thesis } = req.body;
     if (!thesis) {
@@ -289,7 +454,7 @@ app.post("/meme/concept", async (req, res) => {
     }
 
     const userMessage = `Generate a meme token concept based on this thesis:\n${JSON.stringify(thesis, null, 2)}`;
-    const result = await callDGrid("meme_creator", userMessage, "concept", req.body);
+    const result = await callDGrid("meme_creator", userMessage, "concept", withAuthUser(req));
     return res.json({ step: "concept", result });
   } catch (error) {
     return res.status(500).json({ error: error.message });
@@ -300,7 +465,7 @@ app.post("/meme/concept", async (req, res) => {
    MEME LOOP: /meme/image
    Image generation — returns placeholder/stub asset paths
    ============================================================ */
-app.post("/meme/image", async (req, res) => {
+app.post("/meme/image", authenticate, async (req, res) => {
   try {
     const { prompt, name, ticker } = req.body;
     if (!prompt) {
@@ -327,7 +492,7 @@ app.post("/meme/image", async (req, res) => {
    MEME LOOP: /meme/launch
    Deploy token via WorkerTokenFactory + optional liquidity
    ============================================================ */
-app.post("/meme/launch", async (req, res) => {
+app.post("/meme/launch", authenticate, async (req, res) => {
   try {
     const { name, symbol, supply, seedLiquidity } = req.body;
     if (!name || !symbol) {
@@ -457,11 +622,11 @@ app.post("/meme/launch", async (req, res) => {
    FEED LOOP: /feed/generate
    Social agent — generates a feed post based on context
    ============================================================ */
-app.post("/feed/generate", async (req, res) => {
+app.post("/feed/generate", authenticate, async (req, res) => {
   try {
     const { agentName, roleLabel, context } = req.body;
     const userMessage = context ? `Market context: ${context}\nAgent Name: ${agentName}\nRole: ${roleLabel}\nCreate a post.` : `Agent Name: ${agentName}\nRole: ${roleLabel}\nCreate a new post about current market or strategy.`;
-    const result = await callDGrid("social", userMessage, "generate_post", req.body);
+    const result = await callDGrid("social", userMessage, "generate_post", withAuthUser(req));
     return res.json({ result });
   } catch (error) {
     return res.status(500).json({ error: error.message });
@@ -471,9 +636,10 @@ app.post("/feed/generate", async (req, res) => {
 /* ============================================================
    INTELLIGENCE ROUTER: credits, config, BYOK, health, run
    ============================================================ */
-app.post("/intelligence/users", (req, res) => {
+app.post("/intelligence/users", authenticate, (req, res) => {
   try {
-    const { userId, walletAddress } = req.body;
+    const userId = enforceUserScope(req, req.body.userId);
+    const walletAddress = requireAuth ? req.auth.wallet : req.body.walletAddress;
     if (!userId) return res.status(400).json({ error: "userId required" });
     return res.json({ user: intelligenceStore.upsertUser({ id: userId, walletAddress }) });
   } catch (error) {
@@ -481,9 +647,10 @@ app.post("/intelligence/users", (req, res) => {
   }
 });
 
-app.post("/intelligence/credits/add", (req, res) => {
+app.post("/intelligence/credits/add", authenticate, requireAdmin, (req, res) => {
   try {
-    const { userId, amount } = req.body;
+    const { amount } = req.body;
+    const userId = req.body.userId;
     if (!userId || !amount) return res.status(400).json({ error: "userId and amount required" });
     return res.json({ credits: intelligenceStore.addCredits(userId, amount) });
   } catch (error) {
@@ -491,29 +658,35 @@ app.post("/intelligence/credits/add", (req, res) => {
   }
 });
 
-app.get("/intelligence/credits/:userId", (req, res) => {
+app.get("/intelligence/credits/:userId", authenticate, (req, res) => {
   try {
-    return res.json({ credits: intelligenceStore.getCredits(req.params.userId) });
+    const userId = enforceUserScope(req, req.params.userId);
+    return res.json({ credits: intelligenceStore.getCredits(userId) });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
 });
 
-app.post("/intelligence/agents/:agentId/config", (req, res) => {
+app.post("/intelligence/agents/:agentId/config", authenticate, async (req, res) => {
   try {
-    const { userId } = req.body;
+    const userId = enforceUserScope(req, req.body.userId);
     if (!userId) return res.status(400).json({ error: "userId required" });
-    const config = intelligenceStore.setAgentConfig({ ...req.body, agentId: req.params.agentId });
+    await assertAgentOwner(req, req.params.agentId);
+    const config = intelligenceStore.setAgentConfig({ ...req.body, userId, agentId: req.params.agentId });
     return res.json({ config });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
 });
 
-app.post("/intelligence/credentials", (req, res) => {
+app.post("/intelligence/credentials", authenticate, async (req, res) => {
   try {
-    const { userId, agentId, provider, apiKey, endpointUrl, metadata } = req.body;
+    const { agentId, provider, apiKey, endpointUrl, metadata } = req.body;
+    const userId = enforceUserScope(req, req.body.userId);
     if (!userId || !provider || !apiKey) return res.status(400).json({ error: "userId, provider, and apiKey required" });
+    if (agentId) {
+      await assertAgentOwner(req, agentId);
+    }
     const credential = intelligenceStore.storeProviderCredential({ userId, agentId, provider, apiKey, endpointUrl, metadata });
     return res.json({ credential });
   } catch (error) {
@@ -521,18 +694,23 @@ app.post("/intelligence/credentials", (req, res) => {
   }
 });
 
-app.post("/intelligence/providers/:provider/health", async (req, res) => {
+app.post("/intelligence/providers/:provider/health", authenticate, async (req, res) => {
   try {
-    const health = await intelligenceRouter.healthCheck(req.params.provider, req.body.mode, req.body.userId, req.body.agentId);
+    const userId = req.body.userId ? enforceUserScope(req, req.body.userId) : authenticatedUserId(req);
+    const health = await intelligenceRouter.healthCheck(req.params.provider, req.body.mode, userId, req.body.agentId);
     return res.json({ health });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
 });
 
-app.post("/intelligence/run", async (req, res) => {
+app.post("/intelligence/run", authenticate, async (req, res) => {
   try {
-    const result = await intelligenceRouter.runAgentInference(req.body);
+    const userId = enforceUserScope(req, req.body.userId);
+    if (req.body.agentId) {
+      await assertAgentOwner(req, req.body.agentId);
+    }
+    const result = await intelligenceRouter.runAgentInference({ ...req.body, userId });
     return res.json(result);
   } catch (error) {
     const status = error.message.includes("Insufficient intelligence credits") ? 402 : 500;
@@ -540,12 +718,119 @@ app.post("/intelligence/run", async (req, res) => {
   }
 });
 
-app.get("/intelligence/usage/:userId", (req, res) => {
+app.get("/intelligence/usage/:userId", authenticate, (req, res) => {
   try {
-    return res.json({ usage: intelligenceStore.getUsageEvents({ userId: req.params.userId }) });
+    const userId = enforceUserScope(req, req.params.userId);
+    return res.json({ usage: intelligenceStore.getUsageEvents({ userId }) });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
+});
+
+/* ============================================================
+   FARCASTER MINI APP + WIDGET API
+   ============================================================ */
+app.get("/.well-known/farcaster.json", (req, res) => {
+  res.json(buildManifest({ appUrl: farcasterAppUrl(req) }));
+});
+
+app.get("/api/farcaster/manifest", (req, res) => {
+  res.json(buildManifest({ appUrl: farcasterAppUrl(req) }));
+});
+
+app.get("/api/farcaster/og/:feedEventId", (req, res) => {
+  const event = getFeedEvent(req.params.feedEventId);
+  if (!event) {
+    return res.status(404).type("image/svg+xml").send(buildPreviewSvg({ id: "missing", feedEventId: "missing", type: "defi", title: "Strategy not found", metrics: {}, strategy: {}, agent: {} }));
+  }
+  res.setHeader("cache-control", "public, max-age=60");
+  return res.type("image/svg+xml").send(buildPreviewSvg(event));
+});
+
+app.get(["/api/farcaster/embed/:feedEventId", "/api/farcaster/frame/:feedEventId"], (req, res) => {
+  const event = getFeedEvent(req.params.feedEventId);
+  if (!event) return res.status(404).send("Feed event not found");
+  const appUrl = farcasterAppUrl(req);
+  const embed = buildMiniAppEmbed(event, { appUrl });
+  const title = escapeHtml(event.title);
+  const description = escapeHtml(event.description || event.subtitle || "Enter this ClusterFi strategy.");
+  return res.type("html").send(`<!doctype html><html><head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>${title}</title>
+    <meta name="description" content="${description}" />
+    <meta property="og:title" content="${title}" />
+    <meta property="og:description" content="${description}" />
+    <meta property="og:image" content="${embed.imageUrl}" />
+    <meta name="fc:miniapp" content='${escapeHtml(JSON.stringify(embed))}' />
+    <meta name="fc:frame" content='${escapeHtml(JSON.stringify({ ...embed, button: { ...embed.button, action: { ...embed.button.action, type: "launch_frame" } } }))}' />
+  </head><body>
+    <main style="font-family:system-ui;background:#0b1220;color:#e5e2e3;min-height:100vh;display:grid;place-items:center;padding:24px">
+      <section style="max-width:640px">
+        <img alt="" src="${embed.imageUrl}" style="width:100%;border-radius:18px;border:1px solid #3c494e" />
+        <h1>${title}</h1>
+        <p>${description}</p>
+        <p><a href="${event.action.url}" style="color:#00f9be">Enter Strategy</a></p>
+      </section>
+    </main>
+  </body></html>`);
+});
+
+app.post("/api/farcaster/share/:feedEventId", (req, res) => {
+  const event = getFeedEvent(req.params.feedEventId);
+  if (!event) return res.status(404).json({ error: "feed event not found" });
+  return res.json({ share: shareStrategyToFarcaster(event) });
+});
+
+app.get("/api/farcaster/share/:feedEventId", (req, res) => {
+  const event = getFeedEvent(req.params.feedEventId);
+  if (!event) return res.status(404).json({ error: "feed event not found" });
+  return res.json({
+    text: buildFarcasterCastText(event),
+    embedUrl: buildFarcasterEmbedUrl(event, { appUrl: farcasterAppUrl(req) }),
+    actionUrl: buildFarcasterActionUrl(event, { appUrl: farcasterAppUrl(req) }),
+  });
+});
+
+app.get("/api/widget/:feedEventId", (req, res) => {
+  const event = getFeedEvent(req.params.feedEventId);
+  if (!event) return res.status(404).json({ error: "feed event not found" });
+  return res.json({ widget: event });
+});
+
+app.get("/api/feed", (req, res) => {
+  return res.json({ feed: listFeedEvents() });
+});
+
+app.get("/api/feed/:feedEventId", (req, res) => {
+  const event = getFeedEvent(req.params.feedEventId);
+  if (!event) return res.status(404).json({ error: "feed event not found" });
+  return res.json({ feedEvent: event });
+});
+
+app.get("/api/strategy/:strategyId", (req, res) => {
+  const event = listFeedEvents().find((item) => item.strategy.id === req.params.strategyId);
+  if (!event) return res.status(404).json({ error: "strategy not found" });
+  return res.json({
+    strategy: event.strategy,
+    widget: event,
+    txHistory: getStrategyTxHistory(req.params.strategyId),
+    proofs: getStrategyProofs(req.params.strategyId),
+    validation: getValidationStatus(req.params.strategyId),
+    reputation: getReputationEvents(req.params.strategyId),
+  });
+});
+
+app.get("/api/agent/:agentId", (req, res) => {
+  const strategies = listFeedEvents().filter((event) => event.agent?.id === req.params.agentId);
+  if (!strategies.length) return res.status(404).json({ error: "agent not found" });
+  return res.json({ agent: strategies[0].agent, strategies, txHistory: getActorTxHistory(req.params.agentId), reputation: getReputationEvents(req.params.agentId) });
+});
+
+app.get("/api/cluster/:clusterId", (req, res) => {
+  const strategies = listFeedEvents().filter((event) => event.cluster?.id === req.params.clusterId);
+  if (!strategies.length) return res.status(404).json({ error: "cluster not found" });
+  return res.json({ cluster: strategies[0].cluster, strategies, txHistory: getActorTxHistory(req.params.clusterId, "cluster"), reputation: getReputationEvents(req.params.clusterId) });
 });
 
 /* ---------- serve dashboard ---------- */
@@ -724,7 +1009,7 @@ async function callDGrid(agentType, userMessage, step, options = {}) {
     providerMode: options.providerMode || "MANAGED",
     provider: options.provider || "dgrid",
     model: options.model || model,
-    fallbackProviders: options.fallbackProviders || ["0g-compute", "mock"],
+    fallbackProviders: options.fallbackProviders || defaultFallbackProviders(),
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userMessage }
@@ -744,7 +1029,7 @@ async function routeViaDGrid(skill, userMessage, tbaAddress, options = {}) {
     providerMode: options.providerMode || "MANAGED",
     provider: options.provider || "dgrid",
     model: options.model || model,
-    fallbackProviders: options.fallbackProviders || ["0g-compute", "mock"],
+    fallbackProviders: options.fallbackProviders || defaultFallbackProviders(),
     messages: [
       {
         role: "system",
@@ -771,6 +1056,18 @@ async function routeViaDGrid(skill, userMessage, tbaAddress, options = {}) {
     proofURI: routed.proofURI,
     traceId: routed.traceId
   };
+}
+
+function defaultFallbackProviders() {
+  return productionRuntime ? ["0g-compute"] : ["0g-compute", "mock"];
+}
+
+function farcasterAppUrl(req) {
+  return (process.env.FARCASTER_APP_URL || process.env.TUNNEL_URL || process.env.NEXT_PUBLIC_APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[<>&'"]/g, (char) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&#39;", '"': "&quot;" }[char]));
 }
 
 // Legacy dGrid endpoints now route through the metered intelligence router.
