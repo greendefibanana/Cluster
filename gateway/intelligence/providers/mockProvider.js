@@ -20,6 +20,20 @@ export class MockProvider extends BaseProvider {
 }
 
 function mockOutputForTask(taskType, prompt) {
+  if (["defi-yield-analysis", "defi-risk-review", "prediction-market-thesis", "prediction-market-risk-review"].includes(taskType)) {
+    return {
+      recommendation: taskType.includes("risk-review") ? "approve with constraints" : "watchlist and size conservatively",
+      confidence: 0.68,
+      riskScore: taskType.includes("risk-review") ? 42 : 48,
+      reasoning: `Mock free-first strategy reasoning from normalized context: ${prompt.slice(0, 120)}`,
+      strategyPlan: {
+        allocationUsd: 100,
+        actions: ["validate policy thresholds", "require user allocation approval", "attach 0G proof before any adapter intent"],
+      },
+      exitConditions: ["data becomes stale", "liquidity falls below policy threshold", "risk score exceeds policy maximum"],
+      sources: ["normalized-context", "mock-provider"],
+    };
+  }
   if (taskType === "sleuth-alpha" || taskType === "meme-launch") {
     return {
       thesis: "AI agent capital rotation is accelerating through social distribution.",

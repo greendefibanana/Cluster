@@ -2,14 +2,14 @@ import { BaseProvider, estimateTokens, parseMaybeJson } from "./base.js";
 
 export class GeminiProvider extends BaseProvider {
   constructor({ apiKey = process.env.GEMINI_API_KEY, endpointUrl = process.env.GEMINI_API_URL } = {}) {
-    super({ name: "gemini", supportedModels: ["gemini-1.5-flash", "gemini-1.5-pro"], apiKey, endpointUrl });
+    super({ name: "gemini", supportedModels: ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"], apiKey, endpointUrl });
   }
 
   async healthCheck() {
     return { provider: this.name, ok: Boolean(this.apiKey), endpointUrl: this.endpointUrl || "google-generativelanguage" };
   }
 
-  async runInference({ model = "gemini-1.5-flash", messages, temperature = 0.4, maxTokens = 900 }) {
+  async runInference({ model = "gemini-2.5-flash", messages, temperature = 0.4, maxTokens = 900, responseSchema }) {
     if (!this.apiKey) throw new Error("gemini provider missing api key");
     const url = this.endpointUrl || `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
     const contents = messages.filter((message) => message.role !== "system").map((message) => ({
@@ -23,7 +23,12 @@ export class GeminiProvider extends BaseProvider {
       body: JSON.stringify({
         contents,
         systemInstruction: systemInstruction ? { parts: [{ text: systemInstruction }] } : undefined,
-        generationConfig: { temperature, maxOutputTokens: maxTokens },
+        generationConfig: {
+          temperature,
+          maxOutputTokens: maxTokens,
+          responseMimeType: responseSchema ? "application/json" : undefined,
+          thinkingConfig: model.includes("2.5") ? { thinkingBudget: Number(process.env.GEMINI_THINKING_BUDGET ?? 0) } : undefined,
+        },
       }),
     });
     if (!response.ok) {

@@ -20,9 +20,20 @@ export function extractTextFromOpenAIResponse(data) {
 
 export function parseMaybeJson(value) {
   if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  const unfenced = trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
   try {
-    return JSON.parse(value);
+    return JSON.parse(unfenced);
   } catch {
+    const firstBrace = unfenced.indexOf("{");
+    const lastBrace = unfenced.lastIndexOf("}");
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      try {
+        return JSON.parse(unfenced.slice(firstBrace, lastBrace + 1));
+      } catch {
+        return value;
+      }
+    }
     return value;
   }
 }

@@ -5,14 +5,19 @@ import { MockProvider } from "./mockProvider.js";
 import { CustomOpenAICompatibleProvider, OpenAIProvider } from "./openaiProvider.js";
 import { ZeroGComputeProvider } from "./zeroGComputeProvider.js";
 
+function isProductionRuntime() {
+  return process.env.NODE_ENV === "production" || process.env.GATEWAY_ENV === "production";
+}
+
 export function createManagedProviders() {
+  const production = isProductionRuntime();
   return {
     mock: new MockProvider(),
     dgrid: new DgridProvider(),
     openai: new OpenAIProvider(),
     anthropic: new AnthropicProvider(),
     gemini: new GeminiProvider(),
-    "0g-compute": new ZeroGComputeProvider(),
+    "0g-compute": new ZeroGComputeProvider({ fallbackToMock: !production }),
     "custom-openai": new CustomOpenAICompatibleProvider({
       apiKey: process.env.CUSTOM_OPENAI_API_KEY,
       endpointUrl: process.env.CUSTOM_OPENAI_API_URL,
@@ -26,6 +31,8 @@ export function createByokProvider(providerName, credential) {
     case "openai":
       return new OpenAIProvider(options);
     case "anthropic":
+      return new AnthropicProvider(options);
+    case "claude":
       return new AnthropicProvider(options);
     case "gemini":
       return new GeminiProvider(options);

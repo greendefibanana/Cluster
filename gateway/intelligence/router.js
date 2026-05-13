@@ -142,6 +142,9 @@ export class IntelligenceRouter {
   }
 
   resolveProvider(providerName, request) {
+    if (isProductionRuntime() && providerName === "mock" && process.env.ALLOW_PRODUCTION_MOCKS !== "true") {
+      throw new Error("Mock intelligence provider is disabled in production");
+    }
     if (request.providerMode === "BYOK") {
       const credential = this.store.getProviderCredential({ userId: request.userId, agentId: request.agentId, provider: providerName });
       if (!credential && providerName !== "mock") {
@@ -175,12 +178,17 @@ export function createIntelligenceRouter(options = {}) {
   return new IntelligenceRouter(options);
 }
 
+function isProductionRuntime() {
+  return process.env.NODE_ENV === "production" || process.env.GATEWAY_ENV === "production";
+}
+
 function normalizeRequest(request, store) {
   if (!request?.userId || !request?.agentId || !request?.taskType) {
     throw new Error("userId, agentId, and taskType are required for intelligence routing");
   }
   const config = store.getAgentConfig({ userId: request.userId, agentId: request.agentId }) || {};
-  const providerMode = request.providerMode || config.mode || "MANAGED";
+  const managedDefault = process.env.MANAGED_INTELLIGENCE_ENABLED === "true" ? "MANAGED" : "BYOK";
+  const providerMode = request.providerMode || config.mode || (request.provider ? "MANAGED" : managedDefault);
   if (!["BYOK", "MANAGED"].includes(providerMode)) {
     throw new Error("providerMode must be BYOK or MANAGED");
   }
@@ -191,8 +199,8 @@ function normalizeRequest(request, store) {
   return {
     clusterId: null,
     workflowId: null,
-    provider: config.primaryProvider || "dgrid",
-    fallbackProviders: config.fallbackProviders || ["0g-compute", "mock"],
+    provider: config.primaryProvider || (providerMode === "BYOK" ? "mock" : "dgrid"),
+    fallbackProviders: config.fallbackProviders || defaultFallbackProviders(),
     model: config.model,
     messages: [],
     tools: null,
@@ -207,10 +215,14 @@ function normalizeRequest(request, store) {
     zeroGMemoryURI: config.zeroGMemoryURI || null,
     ...request,
     providerMode,
-    provider: request.provider || config.primaryProvider || "dgrid",
-    fallbackProviders: request.fallbackProviders || config.fallbackProviders || ["0g-compute", "mock"],
+    provider: request.provider || config.primaryProvider || (providerMode === "BYOK" ? "mock" : "dgrid"),
+    fallbackProviders: request.fallbackProviders || config.fallbackProviders || defaultFallbackProviders(),
     model: request.model || config.model,
   };
+}
+
+function defaultFallbackProviders() {
+  return isProductionRuntime() ? ["0g-compute"] : ["0g-compute", "mock"];
 }
 
 function providerFallbackOrder(request) {
@@ -223,7 +235,7 @@ function modelForProvider(request, providerName) {
   if (providerName === "0g-compute") return "qwen3.6-plus";
   if (providerName === "openai") return "gpt-4o-mini";
   if (providerName === "anthropic") return "claude-3-5-sonnet-latest";
-  if (providerName === "gemini") return "gemini-1.5-flash";
+  if (providerName === "gemini") return "gemini-2.5-flash";
   return "mock-fast";
 }
 

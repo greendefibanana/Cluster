@@ -11,6 +11,18 @@ export const outputSchemas = {
   marketing: {
     required: ["campaignTitle", "posts", "targetAudience", "hooks", "assetsPrompt"],
   },
+  "defi-yield-analysis": {
+    required: ["recommendation", "confidence", "riskScore", "reasoning", "strategyPlan", "exitConditions", "sources"],
+  },
+  "defi-risk-review": {
+    required: ["recommendation", "confidence", "riskScore", "reasoning", "strategyPlan", "exitConditions", "sources"],
+  },
+  "prediction-market-thesis": {
+    required: ["recommendation", "confidence", "riskScore", "reasoning", "strategyPlan", "exitConditions", "sources"],
+  },
+  "prediction-market-risk-review": {
+    required: ["recommendation", "confidence", "riskScore", "reasoning", "strategyPlan", "exitConditions", "sources"],
+  },
 };
 
 export function schemaForTask(taskType) {
