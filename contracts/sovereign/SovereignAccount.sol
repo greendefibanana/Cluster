@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {SovereignPermissionModule} from "./SovereignPermissionModule.sol";
 import {SovereignExecutionModule} from "./SovereignExecutionModule.sol";
 import {TemporaryExecutionRights} from "./TemporaryExecutionRights.sol";
@@ -31,19 +32,38 @@ contract SovereignAccount is
     TemporaryExecutionRights
 {
     using SafeERC20 for IERC20;
+    using ECDSA for bytes32;
+
+    struct PolicyProof {
+        bytes32 strategyId;
+        bytes32 policyDecisionHash;
+        string proofURI;
+        uint256 expiresAt;
+        bytes signature;
+    }
 
     address public immutable factory;
     SovereignAccountRegistry public registry;
     bytes32 public accountId;
     string public label;
+    address public policyValidator;
 
     mapping(address => uint256) public balances;
+    mapping(bytes32 => bool) public consumedPolicyApprovals;
 
     event SovereignDeposited(address indexed asset, uint256 amount);
     event SovereignWithdrawn(address indexed asset, uint256 amount, address indexed receiver);
     event CrossChainIntentOpened(bytes32 indexed intentId, uint256 indexed targetChainId, address indexed adapter, string proofURI);
     event EmergencyExit(address indexed asset, uint256 amount, address indexed receiver);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event PolicyValidatorSet(address indexed previousValidator, address indexed newValidator);
+    event PolicyProofConsumed(
+        bytes32 indexed approvalDigest,
+        bytes32 indexed strategyId,
+        bytes32 indexed policyDecisionHash,
+        address executor,
+        string proofURI
+    );
 
     constructor() {
         factory = msg.sender;
@@ -65,6 +85,7 @@ contract SovereignAccount is
         require(accountOwner != address(0), "invalid owner");
         require(accountRegistry != address(0), "invalid registry");
         owner = accountOwner;
+        policyValidator = accountOwner;
         registry = SovereignAccountRegistry(accountRegistry);
         accountId = newAccountId;
         label = accountLabel;
@@ -77,12 +98,17 @@ contract SovereignAccount is
             _setChainPermission(chains[i], true);
         }
         emit OwnershipTransferred(address(0), accountOwner);
+        emit PolicyValidatorSet(address(0), accountOwner);
     }
 
     function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "invalid owner");
         address oldOwner = owner;
         owner = newOwner;
+        if (policyValidator == oldOwner) {
+            policyValidator = newOwner;
+            emit PolicyValidatorSet(oldOwner, newOwner);
+        }
         emit OwnershipTransferred(oldOwner, newOwner);
     }
 
@@ -95,11 +121,23 @@ contract SovereignAccount is
         _logAction(msg.sender, "deposit", "");
     }
 
+    function depositNative() external payable onlyOwner nonReentrant {
+        require(msg.value > 0, "amount zero");
+        balances[address(0)] += msg.value;
+        emit SovereignDeposited(address(0), msg.value);
+        _logAction(msg.sender, "deposit_native", "");
+    }
+
     function withdraw(address asset, uint256 amount) external onlyOwner nonReentrant {
         require(amount > 0, "amount zero");
         require(balances[asset] >= amount, "insufficient accounting");
         balances[asset] -= amount;
-        IERC20(asset).safeTransfer(owner, amount);
+        if (asset == address(0)) {
+            (bool success,) = payable(owner).call{value: amount}("");
+            require(success, "native transfer failed");
+        } else {
+            IERC20(asset).safeTransfer(owner, amount);
+        }
         emit SovereignWithdrawn(asset, amount, owner);
         _logAction(msg.sender, "withdraw", "");
     }
@@ -144,6 +182,13 @@ contract SovereignAccount is
         _setRiskLimits(allocationLimit, slippageLimitBps, profile);
     }
 
+    function setPolicyValidator(address newValidator) external onlyOwner {
+        require(newValidator != address(0), "invalid validator");
+        address previousValidator = policyValidator;
+        policyValidator = newValidator;
+        emit PolicyValidatorSet(previousValidator, newValidator);
+    }
+
     function subscribeStrategy(bytes32 strategyId) external onlyOwner {
         _setStrategySubscription(strategyId, true);
     }
@@ -169,7 +214,16 @@ contract SovereignAccount is
     }
 
     function execute(address adapter, bytes calldata data) external nonReentrant returns (bytes memory result) {
-        return _executeWithPermission(adapter, data, bytes32(0));
+        return _executeWithPermission(adapter, data, bytes32(0), false, "");
+    }
+
+    function executeWithProof(address adapter, bytes calldata data, PolicyProof calldata proof)
+        external
+        nonReentrant
+        returns (bytes memory result)
+    {
+        _consumePolicyProof(msg.sender, adapter, data, proof);
+        return _executeWithPermission(adapter, data, bytes32(0), true, proof.proofURI);
     }
 
     function executeWithSession(address adapter, bytes calldata data, bytes32 sessionKey)
@@ -177,7 +231,16 @@ contract SovereignAccount is
         nonReentrant
         returns (bytes memory result)
     {
-        return _executeWithPermission(adapter, data, sessionKey);
+        return _executeWithPermission(adapter, data, sessionKey, false, "");
+    }
+
+    function executeWithSessionProof(address adapter, bytes calldata data, bytes32 sessionKey, PolicyProof calldata proof)
+        external
+        nonReentrant
+        returns (bytes memory result)
+    {
+        _consumePolicyProof(msg.sender, adapter, data, proof);
+        return _executeWithPermission(adapter, data, sessionKey, true, proof.proofURI);
     }
 
     function openCrossChainIntent(
@@ -190,7 +253,88 @@ contract SovereignAccount is
         bytes32 riskConstraints,
         string calldata proofURI
     ) external returns (bytes32 intentId) {
-        require(msg.sender == owner || approvedAgents[msg.sender] || approvedClusters[msg.sender], "not approved");
+        require(msg.sender == owner, "policy proof required");
+        intentId = _openCrossChainIntent(
+            intentEngine,
+            targetChainId,
+            asset,
+            amount,
+            strategyType,
+            adapter,
+            riskConstraints,
+            proofURI
+        );
+    }
+
+    function openCrossChainIntentWithProof(
+        address intentEngine,
+        uint256 targetChainId,
+        address asset,
+        uint256 amount,
+        bytes32 strategyType,
+        address adapter,
+        bytes32 riskConstraints,
+        string calldata proofURI,
+        PolicyProof calldata proof
+    ) external returns (bytes32 intentId) {
+        bytes memory intentData = abi.encode(
+            intentEngine,
+            targetChainId,
+            asset,
+            amount,
+            strategyType,
+            adapter,
+            riskConstraints,
+            proofURI
+        );
+        _consumePolicyProof(msg.sender, adapter, intentData, proof);
+        require(approvedAgents[msg.sender] || approvedClusters[msg.sender], "not approved");
+        intentId = _openCrossChainIntent(
+            intentEngine,
+            targetChainId,
+            asset,
+            amount,
+            strategyType,
+            adapter,
+            riskConstraints,
+            proofURI
+        );
+    }
+
+    function policyApprovalDigest(
+        address executor,
+        address adapter,
+        bytes calldata data,
+        bytes32 strategyId,
+        bytes32 policyDecisionHash,
+        string calldata proofURI,
+        uint256 expiresAt
+    ) public view returns (bytes32) {
+        return _policyApprovalDigest(executor, adapter, keccak256(data), strategyId, policyDecisionHash, proofURI, expiresAt);
+    }
+
+    function policyApprovalDigestForHash(
+        address executor,
+        address adapter,
+        bytes32 dataHash,
+        bytes32 strategyId,
+        bytes32 policyDecisionHash,
+        string calldata proofURI,
+        uint256 expiresAt
+    ) public view returns (bytes32) {
+        return _policyApprovalDigest(executor, adapter, dataHash, strategyId, policyDecisionHash, proofURI, expiresAt);
+    }
+
+    function _openCrossChainIntent(
+        address intentEngine,
+        uint256 targetChainId,
+        address asset,
+        uint256 amount,
+        bytes32 strategyType,
+        address adapter,
+        bytes32 riskConstraints,
+        string calldata proofURI
+    ) internal returns (bytes32 intentId) {
         require(!paused, "paused");
         require(intentEngine != address(0), "invalid engine");
         require(chainPermissions[targetChainId], "chain not allowed");
@@ -214,16 +358,27 @@ contract SovereignAccount is
 
     function emergencyExit(address asset) external onlyOwner nonReentrant {
         _setPaused(true);
-        uint256 balance = IERC20(asset).balanceOf(address(this));
+        uint256 balance = asset == address(0) ? address(this).balance : IERC20(asset).balanceOf(address(this));
         balances[asset] = 0;
         if (balance > 0) {
-            IERC20(asset).safeTransfer(owner, balance);
+            if (asset == address(0)) {
+                (bool success,) = payable(owner).call{value: balance}("");
+                require(success, "native transfer failed");
+            } else {
+                IERC20(asset).safeTransfer(owner, balance);
+            }
         }
         emit EmergencyExit(asset, balance, owner);
         _logAction(msg.sender, "emergency_exit", "");
     }
 
-    function _executeWithPermission(address adapter, bytes calldata data, bytes32 sessionKey)
+    function _executeWithPermission(
+        address adapter,
+        bytes calldata data,
+        bytes32 sessionKey,
+        bool hasPolicyProof,
+        string memory proofURI
+    )
         internal
         returns (bytes memory result)
     {
@@ -243,12 +398,63 @@ contract SovereignAccount is
         require(slippageBps <= maxSlippageBps, "slippage exceeded");
         require(receiver == address(this) || receiver == owner, "unauthorized receiver");
 
-        bool directPermission = msg.sender == owner || approvedAgents[msg.sender] || approvedClusters[msg.sender];
-        bool sessionPermission = sessionKey != bytes32(0) && _consumeSessionKey(sessionKey, msg.sender, adapter, targetChainId);
-        require(directPermission || sessionPermission, "not approved");
+        bool ownerPermission = msg.sender == owner;
+        bool delegatedPermission = hasPolicyProof && (approvedAgents[msg.sender] || approvedClusters[msg.sender]);
+        bool sessionPermission = hasPolicyProof && sessionKey != bytes32(0) && _consumeSessionKey(sessionKey, msg.sender, adapter, targetChainId);
+        require(ownerPermission || delegatedPermission || sessionPermission, "not approved");
 
         result = _executeAdapter(msg.sender, adapter, targetChainId, asset, amount, action, data);
-        _logAction(msg.sender, action, "");
+        _logAction(msg.sender, action, proofURI);
+    }
+
+    function _consumePolicyProof(
+        address executor,
+        address adapter,
+        bytes memory data,
+        PolicyProof calldata proof
+    ) internal {
+        require(policyValidator != address(0), "policy validator missing");
+        require(proof.strategyId != bytes32(0), "strategy required");
+        require(proof.policyDecisionHash != bytes32(0), "policy required");
+        require(bytes(proof.proofURI).length > 0, "proof required");
+        require(proof.expiresAt >= block.timestamp, "policy expired");
+        bytes32 digest = _policyApprovalDigest(
+            executor,
+            adapter,
+            keccak256(data),
+            proof.strategyId,
+            proof.policyDecisionHash,
+            proof.proofURI,
+            proof.expiresAt
+        );
+        require(!consumedPolicyApprovals[digest], "policy already used");
+        address recovered = digest.toEthSignedMessageHash().recover(proof.signature);
+        require(recovered == policyValidator, "invalid policy signature");
+        consumedPolicyApprovals[digest] = true;
+        emit PolicyProofConsumed(digest, proof.strategyId, proof.policyDecisionHash, executor, proof.proofURI);
+    }
+
+    function _policyApprovalDigest(
+        address executor,
+        address adapter,
+        bytes32 dataHash,
+        bytes32 strategyId,
+        bytes32 policyDecisionHash,
+        string memory proofURI,
+        uint256 expiresAt
+    ) internal view returns (bytes32) {
+        return keccak256(abi.encode(
+            "ClusterFi:SovereignPolicyApproval:v1",
+            address(this),
+            block.chainid,
+            executor,
+            adapter,
+            dataHash,
+            strategyId,
+            policyDecisionHash,
+            keccak256(bytes(proofURI)),
+            expiresAt
+        ));
     }
 
     function _logAction(address actor, bytes32 actionType, string memory proofURI) internal {
