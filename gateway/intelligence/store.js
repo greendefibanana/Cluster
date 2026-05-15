@@ -35,7 +35,14 @@ function initialState() {
 }
 
 export class JsonIntelligenceStore {
-  constructor({ filePath = DEFAULT_STATE_PATH, encryptionKey = process.env.INTELLIGENCE_ENCRYPTION_KEY } = {}) {
+  constructor({
+    filePath = DEFAULT_STATE_PATH,
+    encryptionKey = process.env.INTELLIGENCE_ENCRYPTION_KEY,
+    allowInProduction = false,
+  } = {}) {
+    if (isProductionRuntime() && !allowInProduction) {
+      throw new Error("JsonIntelligenceStore is disabled in production; configure a durable production store");
+    }
     this.filePath = filePath;
     this.encryptionKey = encryptionKey;
     this.state = this.load();
@@ -114,7 +121,21 @@ export class JsonIntelligenceStore {
       temperature: 0.4,
       maxTokens: 900,
       memoryDepth: 8,
-      allowedTaskTypes: ["sleuth-alpha", "quant-strategy", "pnl-report", "marketing", "meme-launch", "prediction-market", "agent-execute", "social-post"],
+      allowedTaskTypes: [
+        "sleuth-alpha",
+        "quant-strategy",
+        "pnl-report",
+        "marketing",
+        "meme-launch",
+        "prediction-market",
+        "agent-execute",
+        "social-post",
+        "lp-yield",
+        "defi-yield-analysis",
+        "defi-risk-review",
+        "prediction-market-thesis",
+        "prediction-market-risk-review",
+      ],
       zeroGMemoryURI: null,
       active: true,
       ...config,
@@ -143,7 +164,7 @@ export class JsonIntelligenceStore {
       provider,
       endpointUrl,
       encryptedApiKey,
-      metadata,
+      metadata: sanitizeCredentialMetadata(metadata),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -235,7 +256,11 @@ export class JsonIntelligenceStore {
 
 export class MemoryIntelligenceStore extends JsonIntelligenceStore {
   constructor({ encryptionKey = "clusterfi-test-encryption-key" } = {}) {
-    super({ filePath: path.join(process.cwd(), "deployments", `.memory-${randomUUID()}.json`), encryptionKey });
+    super({
+      filePath: path.join(process.cwd(), "deployments", `.memory-${randomUUID()}.json`),
+      encryptionKey,
+      allowInProduction: true,
+    });
     this.state = initialState();
   }
 
@@ -244,6 +269,19 @@ export class MemoryIntelligenceStore extends JsonIntelligenceStore {
   }
 }
 
+function isProductionRuntime() {
+  return process.env.NODE_ENV === "production" || process.env.GATEWAY_ENV === "production";
+}
+
 function roundMoney(value) {
   return Math.round(Number(value) * 1_000_000_000) / 1_000_000_000;
+}
+
+function sanitizeCredentialMetadata(metadata = {}) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return {};
+  return Object.fromEntries(
+    Object.entries(metadata)
+      .filter(([key]) => !/(api[_-]?key|secret|token|password|private[_-]?key|authorization)/i.test(key))
+      .map(([key, value]) => [key, value && typeof value === "object" ? "[redacted-object]" : value])
+  );
 }

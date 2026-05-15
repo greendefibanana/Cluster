@@ -38,6 +38,13 @@ export class RealZeroGStorageProvider extends RealZeroGProvider {
 }
 
 export function createZeroGStorageProvider(mode = process.env.ZERO_G_PROVIDER || "mock") {
+  if (isProductionRuntime() && mode !== "real" && process.env.ALLOW_PRODUCTION_MOCKS !== "true") {
+    throw new Error("Production 0G storage requires ZERO_G_PROVIDER=real");
+  }
   if (mode === "local") return new LocalZeroGProvider();
   return mode === "real" ? new RealZeroGStorageProvider() : new ZeroGStorageProvider();
+}
+
+function isProductionRuntime() {
+  return process.env.NODE_ENV === "production" || process.env.GATEWAY_ENV === "production";
 }

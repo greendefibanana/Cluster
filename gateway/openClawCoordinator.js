@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { ethers } from "ethers";
 import { createZeroGProvider } from "./zeroGProvider.js";
 import { createZeroGDAProvider } from "./zeroG/daProvider.js";
 
@@ -11,10 +12,17 @@ const roles = {
 };
 
 export class ClusterFiCoordinator {
-  constructor({ zeroGProvider = createZeroGProvider("mock"), zeroGDAProvider = createZeroGDAProvider("mock"), intelligenceRouter = null, userId = "demo-user" } = {}) {
+  constructor({
+    zeroGProvider = createZeroGProvider("mock"),
+    zeroGDAProvider = createZeroGDAProvider("mock"),
+    intelligenceRouter = null,
+    swarmResolver = null,
+    userId = "demo-user",
+  } = {}) {
     this.zeroG = zeroGProvider;
     this.zeroGDA = zeroGDAProvider;
     this.intelligenceRouter = intelligenceRouter;
+    this.swarmResolver = swarmResolver;
     this.userId = userId;
     this.sessions = [];
     this.actionLogs = [];
@@ -46,12 +54,13 @@ export class ClusterFiCoordinator {
     return entry;
   }
 
-  async runMemeLaunchWorkflow({ clusterId = "cluster-1", agents = defaultAgents(), trend = "AI x meme rotation" } = {}) {
+  async runMemeLaunchWorkflow({ clusterId = "cluster-1", swarmId = clusterId, agents = null, trend = "AI x meme rotation" } = {}) {
+    agents = await this.resolveWorkflowAgents({ clusterId, swarmId, agents });
     const session = this.createSession("Meme Launch Workflow", agents);
     const strategyId = `meme-${randomUUID()}`;
-    const sleuth = agents.find((agent) => agent.role === roles.sleuth);
-    const creator = agents.find((agent) => agent.role === roles.creator);
-    const marketing = agents.find((agent) => agent.role === roles.marketing);
+    const sleuth = pickAgent(agents, roles.sleuth, "alpha_scout");
+    const creator = pickAgent(agents, roles.creator, "meme_creator");
+    const marketing = pickAgent(agents, roles.marketing, "creative_content");
 
     const alpha = await this.runIntelligenceTask({
       agent: sleuth,
@@ -98,10 +107,11 @@ export class ClusterFiCoordinator {
     return { workflow: "meme-launch", strategyId, session, proof, feedPost };
   }
 
-  async runLpYieldWorkflow({ clusterId = "cluster-1", agents = defaultAgents(), pair = "BNB/USDT" } = {}) {
+  async runLpYieldWorkflow({ clusterId = "cluster-1", swarmId = clusterId, agents = null, pair = "BNB/USDT" } = {}) {
+    agents = await this.resolveWorkflowAgents({ clusterId, swarmId, agents });
     const session = this.createSession("LP/Yield Workflow", agents);
     const strategyId = `yield-${randomUUID()}`;
-    const quant = agents.find((agent) => agent.role === roles.quant);
+    const quant = pickAgent(agents, roles.quant, "lp_management");
     const strategy = await this.runIntelligenceTask({
       agent: quant,
       clusterId,
@@ -138,11 +148,12 @@ export class ClusterFiCoordinator {
     return { workflow: "lp-yield", strategyId, session, proof, pnlProof, reputationEvent, feedPost };
   }
 
-  async runPredictionMarketWorkflow({ clusterId = "cluster-1", agents = defaultAgents(), question = "Will BNB outperform ETH this week?" } = {}) {
+  async runPredictionMarketWorkflow({ clusterId = "cluster-1", swarmId = clusterId, agents = null, question = "Will BNB outperform ETH this week?" } = {}) {
+    agents = await this.resolveWorkflowAgents({ clusterId, swarmId, agents });
     const session = this.createSession("Prediction Market Workflow", agents);
     const strategyId = `prediction-${randomUUID()}`;
-    const prediction = agents.find((agent) => agent.role === roles.prediction);
-    const sleuth = agents.find((agent) => agent.role === roles.sleuth);
+    const prediction = pickAgent(agents, roles.prediction, "prediction_market");
+    const sleuth = pickAgent(agents, roles.sleuth, "alpha_scout");
     const thesis = await this.runIntelligenceTask({
       agent: prediction || sleuth,
       clusterId,
@@ -169,9 +180,10 @@ export class ClusterFiCoordinator {
     return { workflow: "prediction-market", strategyId, session, proof, validation, feedPost };
   }
 
-  async runSleuthAlphaWorkflow({ clusterId = "cluster-1", agents = defaultAgents(), context = "Farcaster meme liquidity rotation" } = {}) {
+  async runSleuthAlphaWorkflow({ clusterId = "cluster-1", swarmId = clusterId, agents = null, context = "Farcaster meme liquidity rotation" } = {}) {
+    agents = await this.resolveWorkflowAgents({ clusterId, swarmId, agents });
     const session = this.createSession("Sleuth Alpha Workflow", agents);
-    const sleuth = agents.find((agent) => agent.role === roles.sleuth);
+    const sleuth = pickAgent(agents, roles.sleuth, "alpha_scout");
     const alpha = await this.runIntelligenceTask({
       agent: sleuth,
       clusterId,
@@ -196,9 +208,10 @@ export class ClusterFiCoordinator {
     return { workflow: "sleuth-alpha", session, alpha, proof, feedPost };
   }
 
-  async runMarketingCampaignWorkflow({ clusterId = "cluster-1", agents = defaultAgents(), strategy = "non-custodial agent LP strategy" } = {}) {
+  async runMarketingCampaignWorkflow({ clusterId = "cluster-1", swarmId = clusterId, agents = null, strategy = "non-custodial agent LP strategy" } = {}) {
+    agents = await this.resolveWorkflowAgents({ clusterId, swarmId, agents });
     const session = this.createSession("Marketing Campaign Workflow", agents);
-    const marketing = agents.find((agent) => agent.role === roles.marketing);
+    const marketing = pickAgent(agents, roles.marketing, "creative_content");
     const campaign = await this.runIntelligenceTask({
       agent: marketing,
       clusterId,
@@ -211,9 +224,10 @@ export class ClusterFiCoordinator {
     return { workflow: "marketing", session, campaign, proof };
   }
 
-  async runPnlUpdateWorkflow({ clusterId = "cluster-1", agents = defaultAgents(), strategyId = "yield-demo" } = {}) {
+  async runPnlUpdateWorkflow({ clusterId = "cluster-1", swarmId = clusterId, agents = null, strategyId = "yield-demo" } = {}) {
+    agents = await this.resolveWorkflowAgents({ clusterId, swarmId, agents });
     const session = this.createSession("PnL Update Workflow", agents);
-    const quant = agents.find((agent) => agent.role === roles.quant);
+    const quant = pickAgent(agents, roles.quant, "lp_management");
     const pnl = await this.runIntelligenceTask({
       agent: quant,
       clusterId,
@@ -243,6 +257,30 @@ export class ClusterFiCoordinator {
     });
   }
 
+  async resolveWorkflowAgents({ clusterId, swarmId, agents }) {
+    if (agents?.length) {
+      return agents;
+    }
+    if (this.swarmResolver && swarmId) {
+      try {
+        const resolved = await this.swarmResolver.resolveSwarm({ swarmId, clusterId });
+        if (resolved?.agents?.length) {
+          return resolved.agents;
+        }
+      } catch (error) {
+        this.actionLogs.push({
+          id: randomUUID(),
+          sessionId: null,
+          actor: "coordinator",
+          action: "swarm-resolution-failed",
+          payload: { swarmId, clusterId, error: error.message },
+          createdAt: new Date().toISOString(),
+        });
+      }
+    }
+    return defaultAgents();
+  }
+
   feedEvent({ actorType, actorId, actionType, title, body, strategyId, instrumentType, proofURI, pnl = 0, tvl = 0, riskScore = 50 }) {
     return {
       id: randomUUID(),
@@ -262,6 +300,109 @@ export class ClusterFiCoordinator {
       createdAt: new Date().toISOString(),
     };
   }
+}
+
+export function createEvmSwarmResolver({
+  rpcUrl,
+  provider = rpcUrl ? new ethers.JsonRpcProvider(rpcUrl) : null,
+  swarmNftAddress,
+  agentNftAddress,
+  skillManagerAddress,
+  skillNftAddress,
+} = {}) {
+  if (!provider || !swarmNftAddress || !agentNftAddress) {
+    return null;
+  }
+  const swarmNft = new ethers.Contract(swarmNftAddress, swarmNftAbi, provider);
+  const agentNft = new ethers.Contract(agentNftAddress, agentNftAbi, provider);
+  const skillManager = skillManagerAddress ? new ethers.Contract(skillManagerAddress, skillManagerAbi, provider) : null;
+  const skillNft = skillNftAddress ? new ethers.Contract(skillNftAddress, skillNftAbi, provider) : null;
+
+  return {
+    async resolveSwarm({ swarmId }) {
+      if (!/^\d+$/.test(String(swarmId))) {
+        throw new Error(`swarmId must be numeric for EVM resolution: ${swarmId}`);
+      }
+      const [tbaAddress, profile] = await Promise.all([
+        swarmNft.tbas(BigInt(swarmId)),
+        swarmNft.swarmProfiles(BigInt(swarmId)),
+      ]);
+      const balance = await agentNft.balanceOf(tbaAddress);
+      const agents = [];
+      for (let index = 0; index < Number(balance); index++) {
+        const tokenId = await agentNft.tokenOfOwnerByIndex(tbaAddress, BigInt(index));
+        const [agentTba, agentProfile] = await Promise.all([
+          agentNft.tbas(tokenId),
+          agentNft.agentProfiles(tokenId),
+        ]);
+        const skills = await resolveAgentSkills({ tokenId, agentTba, skillManager, skillNft });
+        agents.push({
+          id: tokenId.toString(),
+          name: agentProfile.name || `Agent ${tokenId.toString()}`,
+          role: inferRole(agentProfile.role, skills),
+          title: agentProfile.role,
+          description: agentProfile.description,
+          tbaAddress: agentTba,
+          ownerAddress: tbaAddress,
+          skills: skills.map((skill) => skill.capabilityTag || skill.name).filter(Boolean),
+          skillDetails: skills,
+        });
+      }
+      return {
+        id: String(swarmId),
+        name: profile.name,
+        strategy: profile.strategy,
+        description: profile.description,
+        tbaAddress,
+        agents,
+      };
+    },
+  };
+}
+
+async function resolveAgentSkills({ tokenId, agentTba, skillManager, skillNft }) {
+  if (!skillManager || !skillNft) return [];
+  const skillIds = await skillManager.equippedSkillIds(tokenId).catch(() => []);
+  const skills = [];
+  for (const skillId of skillIds) {
+    const [name, skillType, capabilityTag, description, skillMarkdown] = await skillNft.getSkill(skillId);
+    const balance = await skillManager.equippedBalance(tokenId, skillId).catch(() => 0n);
+    if (balance <= 0n) continue;
+    skills.push({
+      id: skillId.toString(),
+      name,
+      skillType,
+      capabilityTag,
+      description,
+      skillMarkdown,
+      balance: balance.toString(),
+      holder: agentTba,
+    });
+  }
+  return skills;
+}
+
+function pickAgent(agents, preferredRole, capabilityTag) {
+  return (
+    agents.find((agent) => agent.role === preferredRole) ||
+    agents.find((agent) => agent.skills?.includes(capabilityTag)) ||
+    agents.find((agent) => agent.skillDetails?.some((skill) => skill.capabilityTag === capabilityTag)) ||
+    agents[0] ||
+    { id: "agent-unknown", name: "Unassigned Agent", role: preferredRole, skills: [] }
+  );
+}
+
+function inferRole(role, skills = []) {
+  const normalized = String(role || "").toLowerCase();
+  if (normalized.includes("quant") || normalized.includes("yield") || normalized.includes("lp")) return roles.quant;
+  if (normalized.includes("prediction") || normalized.includes("odds")) return roles.prediction;
+  if (normalized.includes("market") || normalized.includes("social")) return roles.marketing;
+  if (normalized.includes("meme") || normalized.includes("creator")) return roles.creator;
+  if (skills.some((skill) => ["lp_management", "defi_yield", "yield_strategy"].includes(skill.capabilityTag))) return roles.quant;
+  if (skills.some((skill) => ["prediction_market", "prediction_thesis"].includes(skill.capabilityTag))) return roles.prediction;
+  if (skills.some((skill) => ["creative_content", "market_strategy"].includes(skill.capabilityTag))) return roles.marketing;
+  if (skills.some((skill) => ["meme_creator", "token_design"].includes(skill.capabilityTag))) return roles.creator;
+  return roles.sleuth;
 }
 
 function fallbackIntelligenceOutput(taskType, prompt) {
@@ -317,3 +458,24 @@ export function defaultAgents() {
     { id: "agent-5", name: "Odds Oracle", role: roles.prediction, skills: ["OPEN_PREDICTION_MARKET"] },
   ];
 }
+
+const swarmNftAbi = [
+  "function tbas(uint256 swarmId) view returns (address)",
+  "function swarmProfiles(uint256 swarmId) view returns (string name, string strategy, string description)",
+];
+
+const agentNftAbi = [
+  "function tbas(uint256 agentId) view returns (address)",
+  "function balanceOf(address owner) view returns (uint256)",
+  "function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)",
+  "function agentProfiles(uint256 agentId) view returns (string name, string role, string description)",
+];
+
+const skillManagerAbi = [
+  "function equippedSkillIds(uint256 agentId) view returns (uint256[])",
+  "function equippedBalance(uint256 agentId, uint256 skillId) view returns (uint256)",
+];
+
+const skillNftAbi = [
+  "function getSkill(uint256 skillId) view returns (string name, string skillType, string capabilityTag, string description, string skillMarkdown)",
+];

@@ -78,6 +78,13 @@ export class RealZeroGDAProvider {
 }
 
 export function createZeroGDAProvider(mode = process.env.ZERO_G_DA_PROVIDER || "mock") {
+  if (isProductionRuntime() && mode !== "real" && process.env.ALLOW_PRODUCTION_MOCKS !== "true") {
+    throw new Error("Production 0G DA requires ZERO_G_DA_PROVIDER=real");
+  }
   if (mode === "local") return new LocalZeroGDAProvider();
   return mode === "real" ? new RealZeroGDAProvider() : new MockZeroGDAProvider();
+}
+
+function isProductionRuntime() {
+  return process.env.NODE_ENV === "production" || process.env.GATEWAY_ENV === "production";
 }

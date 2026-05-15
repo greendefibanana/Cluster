@@ -1,4 +1,12 @@
+import fs from "fs";
+import path from "path";
+
 const DEFAULT_APP_URL = process.env.FARCASTER_APP_URL || process.env.TUNNEL_URL || process.env.NEXT_PUBLIC_APP_URL || `http://localhost:${process.env.GATEWAY_PORT || 3000}`;
+const APP_NAME = "ClusterFi";
+const LOCAL_FEED_FILES = [
+  path.join(process.cwd(), "deployments", "local-feed-event.json"),
+  path.join(process.cwd(), "deployments", "local-prediction-feed-event.json"),
+];
 
 export const demoFeedEvents = [
   {
@@ -81,13 +89,20 @@ export function normalizeWidgetData(input, { appUrl = DEFAULT_APP_URL } = {}) {
 }
 
 export function getFeedEvent(feedEventId) {
-  const event = demoFeedEvents.find((item) => item.feedEventId === feedEventId || item.id === feedEventId);
-  if (!event) return null;
-  return normalizeWidgetData(event);
+  return listFeedEvents().find((item) => item.feedEventId === feedEventId || item.id === feedEventId) || null;
 }
 
 export function listFeedEvents() {
-  return demoFeedEvents.map((event) => normalizeWidgetData(event));
+  const events = [...demoFeedEvents, ...loadLocalFeedEvents()];
+  const seen = new Set();
+  return events
+    .map((event) => normalizeWidgetData(event))
+    .filter((event) => {
+      const key = event.feedEventId || event.id;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
 export function buildFarcasterActionUrl(feedEvent, { appUrl = DEFAULT_APP_URL } = {}) {
@@ -115,17 +130,18 @@ export function buildFarcasterCastText(feedEvent) {
 }
 
 export function buildMiniAppEmbed(feedEvent, { appUrl = DEFAULT_APP_URL } = {}) {
-  const data = normalizeWidgetData(feedEvent, { appUrl });
+  const base = absoluteBaseUrl(appUrl);
+  const data = normalizeWidgetData(feedEvent, { appUrl: base });
   return {
     version: "1",
-    imageUrl: `${appUrl.replace(/\/$/, "")}/api/farcaster/og/${encodeURIComponent(data.feedEventId)}`,
+    imageUrl: `${base}/api/farcaster/og/${encodeURIComponent(data.feedEventId)}`,
     button: {
       title: "Enter Strategy",
       action: {
         type: "launch_miniapp",
-        name: "ClusterFi",
+        name: APP_NAME,
         url: data.action.url,
-        splashImageUrl: `${appUrl.replace(/\/$/, "")}/icons.svg`,
+        splashImageUrl: `${base}/icons.svg`,
         splashBackgroundColor: "#0b1220",
       },
     },
@@ -133,32 +149,45 @@ export function buildMiniAppEmbed(feedEvent, { appUrl = DEFAULT_APP_URL } = {}) 
 }
 
 export function buildManifest({ appUrl = DEFAULT_APP_URL } = {}) {
-  const base = appUrl.replace(/\/$/, "");
+  const base = absoluteBaseUrl(appUrl);
+  const miniapp = {
+    version: "1",
+    name: APP_NAME,
+    homeUrl: `${base}/mini`,
+    iconUrl: `${base}/favicon.svg`,
+    splashImageUrl: `${base}/icons.svg`,
+    splashBackgroundColor: "#0b1220",
+    subtitle: "Investable agent posts",
+    description: "AI agent and cluster strategy posts with proof, reputation, risk, and Sovereign Account entry.",
+    primaryCategory: "finance",
+    tags: ["defi", "agents", "farcaster", "prediction"],
+    heroImageUrl: `${base}/api/farcaster/og/feed-yield-vault-9`,
+    tagline: "Enter strategies from the feed",
+    ogTitle: APP_NAME,
+    ogDescription: "Farcaster feed plus AI agents plus internet capital markets.",
+    ogImageUrl: `${base}/api/farcaster/og/feed-yield-vault-9`,
+    noindex: process.env.FARCASTER_DEBUG === "true",
+  };
   return {
     accountAssociation: {
       header: process.env.FARCASTER_ACCOUNT_ASSOCIATION_HEADER || "",
       payload: process.env.FARCASTER_ACCOUNT_ASSOCIATION_PAYLOAD || "",
       signature: process.env.FARCASTER_ACCOUNT_ASSOCIATION_SIGNATURE || "",
     },
-    miniapp: {
-      version: "1",
-      name: "ClusterFi",
-      homeUrl: `${base}/mini`,
-      iconUrl: `${base}/favicon.svg`,
-      splashImageUrl: `${base}/icons.svg`,
-      splashBackgroundColor: "#0b1220",
-      subtitle: "Investable agent posts",
-      description: "AI agent and cluster strategy posts with proof, reputation, risk, and Sovereign Account entry.",
-      primaryCategory: "finance",
-      tags: ["defi", "agents", "farcaster", "prediction"],
-      heroImageUrl: `${base}/api/farcaster/og/feed-yield-vault-9`,
-      tagline: "Enter strategies from the feed",
-      ogTitle: "ClusterFi",
-      ogDescription: "Farcaster feed plus AI agents plus internet capital markets.",
-      ogImageUrl: `${base}/api/farcaster/og/feed-yield-vault-9`,
-      noindex: process.env.FARCASTER_DEBUG === "true",
-    },
+    miniapp,
+    frame: miniapp,
   };
+}
+
+export function validateFarcasterProductionConfig({ appUrl = DEFAULT_APP_URL } = {}) {
+  const issues = [];
+  const base = appUrl || "";
+  if (!/^https:\/\//i.test(base)) issues.push("FARCASTER_APP_URL/NEXT_PUBLIC_APP_URL must be an HTTPS origin");
+  if (/localhost|127\.0\.0\.1|0\.0\.0\.0/i.test(base)) issues.push("Farcaster production URL must not point at localhost");
+  for (const key of ["FARCASTER_ACCOUNT_ASSOCIATION_HEADER", "FARCASTER_ACCOUNT_ASSOCIATION_PAYLOAD", "FARCASTER_ACCOUNT_ASSOCIATION_SIGNATURE"]) {
+    if (!process.env[key]) issues.push(`${key} is required for Farcaster publishing`);
+  }
+  return { ok: issues.length === 0, issues };
 }
 
 export function buildPreviewSvg(feedEvent) {
@@ -245,11 +274,32 @@ function normalizeType(type = "defi") {
   return "defi";
 }
 
+function loadLocalFeedEvents() {
+  const events = [];
+  for (const filePath of LOCAL_FEED_FILES) {
+    try {
+      if (!fs.existsSync(filePath)) continue;
+      const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+      if (Array.isArray(parsed)) events.push(...parsed);
+      else events.push(parsed);
+    } catch {
+      // Local E2E feed artifacts are optional and should not block the gateway.
+    }
+  }
+  return events;
+}
+
 function formatCurrency(value) {
   const number = Number(value || 0);
   if (number >= 1_000_000) return `$${(number / 1_000_000).toFixed(1)}M`;
   if (number >= 1_000) return `$${(number / 1_000).toFixed(1)}K`;
   return `$${number.toLocaleString()}`;
+}
+
+function absoluteBaseUrl(appUrl) {
+  const value = String(appUrl || DEFAULT_APP_URL).replace(/\/$/, "");
+  if (/^https?:\/\//i.test(value)) return value;
+  return `https://${value}`;
 }
 
 function formatCompact(value) {

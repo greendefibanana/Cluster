@@ -96,12 +96,16 @@ function checkDefiContext(context, policy, rejectionReasons, warnings) {
   if (policy.protocolAllowlist.length && context.protocol && !policy.protocolAllowlist.includes(context.protocol)) {
     rejectionReasons.push(`protocol not allowed: ${context.protocol}`);
   }
-  const tvl = Number(context.tvl?.tvl ?? context.tvl?.chains?.[0]?.tvl ?? context.liquidityState?.topPoolTvlUsd ?? 0);
-  if (tvl && tvl < policy.minTvlUsd) {
+  const tvl = Number(context.tvl?.tvl ?? context.tvl?.chains?.[0]?.tvl ?? context.liquidityState?.topPoolTvlUsd);
+  if (!Number.isFinite(tvl) || tvl <= 0) {
+    rejectionReasons.push("TVL data missing or invalid");
+  } else if (tvl < policy.minTvlUsd) {
     rejectionReasons.push(`TVL ${tvl} below minimum ${policy.minTvlUsd}`);
   }
-  const liquidity = Number(context.liquidityState?.topPoolTvlUsd ?? context.liquidityState?.liquidityUsd ?? 0);
-  if (liquidity && liquidity < policy.minLiquidityUsd) {
+  const liquidity = Number(context.liquidityState?.topPoolTvlUsd ?? context.liquidityState?.liquidityUsd);
+  if (!Number.isFinite(liquidity) || liquidity <= 0) {
+    rejectionReasons.push("liquidity data missing or invalid");
+  } else if (liquidity < policy.minLiquidityUsd) {
     rejectionReasons.push(`liquidity ${liquidity} below minimum ${policy.minLiquidityUsd}`);
   }
   if ((context.riskNotes || []).length) {
@@ -115,7 +119,9 @@ function checkPredictionContext(context, policy, rejectionReasons, warnings) {
   }
   const liquidityRows = Array.isArray(context.liquidity) ? context.liquidity : [context.liquidity];
   const lowestLiquidity = Math.min(...liquidityRows.map((row) => Number(row?.liquidityNum ?? row?.liquidity ?? Infinity)));
-  if (Number.isFinite(lowestLiquidity) && lowestLiquidity < policy.marketLiquidityThreshold) {
+  if (!Number.isFinite(lowestLiquidity) || lowestLiquidity === Infinity) {
+    rejectionReasons.push("market liquidity data missing or invalid");
+  } else if (lowestLiquidity < policy.marketLiquidityThreshold) {
     rejectionReasons.push(`market liquidity ${lowestLiquidity} below threshold ${policy.marketLiquidityThreshold}`);
   }
   if ((context.riskNotes || []).length) {

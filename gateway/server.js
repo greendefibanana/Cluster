@@ -10,6 +10,17 @@ import { WalletAuthService, bearerToken, normalizeAddress } from "./auth.js";
 import { createIntelligenceRouter } from "./intelligence/router.js";
 import { JsonIntelligenceStore } from "./intelligence/store.js";
 import {
+  assertAllowedProvider,
+  assertAllowedTaskType,
+  assertByokCredentialInput,
+  assertManagedModeAllowed,
+  assertProviderList,
+  assertTaskTypeList,
+  createRateLimiter,
+  publicError,
+  securityHeaders,
+} from "./security.js";
+import {
   buildFarcasterActionUrl,
   buildFarcasterCastText,
   buildFarcasterEmbedUrl,
@@ -24,11 +35,13 @@ import {
   getValidationStatus,
   listFeedEvents,
   shareStrategyToFarcaster,
+  validateFarcasterProductionConfig,
 } from "./farcaster/service.js";
 
 /* ---------- startup validation ---------- */
-if (!process.env.BSC_TESTNET_RPC_URL) {
-  console.error("FATAL: BSC_TESTNET_RPC_URL is required");
+const gatewayRpcUrl = process.env.GATEWAY_RPC_URL || process.env.MANTLE_RPC_URL || process.env.BSC_TESTNET_RPC_URL;
+if (!gatewayRpcUrl) {
+  console.error("FATAL: GATEWAY_RPC_URL or MANTLE_RPC_URL is required");
   process.exit(1);
 }
 /* ---------- load deployment addresses ---------- */
@@ -94,6 +107,7 @@ const autoFeedInitialDelayMs = Number(readConfig(envOverrides, "AUTO_FEED_INITIA
 const productionRuntime = isProductionRuntime();
 const requireAuth = productionRuntime || isTruthy(readConfig(envOverrides, "GATEWAY_REQUIRE_AUTH"));
 const allowProductionMocks = isTruthy(readConfig(envOverrides, "ALLOW_PRODUCTION_MOCKS"));
+const managedIntelligenceEnabled = isTruthy(readConfig(envOverrides, "MANAGED_INTELLIGENCE_ENABLED"));
 const authService = new WalletAuthService({ secret: readConfig(envOverrides, "GATEWAY_AUTH_SECRET") });
 
 if (requireAuth) {
@@ -107,9 +121,70 @@ if (productionRuntime) {
   if (!readConfig(envOverrides, "INTELLIGENCE_ENCRYPTION_KEY")) {
     throw new Error("INTELLIGENCE_ENCRYPTION_KEY is required in production");
   }
+  if (readConfig(envOverrides, "ZERO_G_PROVIDER") !== "real") {
+    throw new Error("ZERO_G_PROVIDER=real is required in production");
+  }
   if (readConfig(envOverrides, "DEPLOYER_PRIVATE_KEY")) {
     throw new Error("DEPLOYER_PRIVATE_KEY must not be configured on the production gateway");
   }
+  if (isTruthy(readConfig(envOverrides, "NEXT_PUBLIC_FARCASTER_ENABLED")) || isTruthy(readConfig(envOverrides, "FARCASTER_ENABLED"))) {
+    const farcasterConfig = validateFarcasterProductionConfig({
+      appUrl: readConfig(envOverrides, "FARCASTER_APP_URL") || readConfig(envOverrides, "NEXT_PUBLIC_APP_URL"),
+    });
+    if (!farcasterConfig.ok) {
+      throw new Error(`Farcaster production config invalid: ${farcasterConfig.issues.join("; ")}`);
+    }
+  }
+}
+
+function corsOptions() {
+  const configured = (readConfig(envOverrides, "GATEWAY_CORS_ORIGINS") || readConfig(envOverrides, "FARCASTER_APP_URL") || readConfig(envOverrides, "NEXT_PUBLIC_APP_URL") || "")
+    .split(",")
+    .map((origin) => origin.trim().replace(/\/$/, ""))
+    .filter(Boolean);
+  if (!productionRuntime || !configured.length) return {};
+  return {
+    origin(origin, callback) {
+      if (!origin || configured.includes(origin.replace(/\/$/, ""))) return callback(null, true);
+      return callback(new Error("origin not allowed"));
+    },
+  };
+}
+
+function validateExternalEndpoint(endpointUrl) {
+  try {
+    const parsed = new URL(endpointUrl);
+    if (parsed.protocol !== "https:") return { ok: false, error: "endpointUrl must use HTTPS" };
+    const host = parsed.hostname.toLowerCase();
+    if (
+      host === "localhost" ||
+      host.endsWith(".localhost") ||
+      host.endsWith(".local") ||
+      host === "0.0.0.0" ||
+      host.startsWith("127.") ||
+      host.startsWith("10.") ||
+      host.startsWith("192.168.") ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+      host === "::1"
+    ) {
+      return { ok: false, error: "endpointUrl cannot target local or private network hosts" };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "endpointUrl is invalid" };
+  }
+}
+
+const providerValidationOptions = {
+  production: productionRuntime,
+  allowProductionMocks,
+};
+
+function sendError(res, error, status = 500, fallback = "Request failed") {
+  return res.status(status).json(publicError(error, {
+    production: productionRuntime,
+    fallback,
+  }));
 }
 
 const feedPersonas = [
@@ -146,10 +221,47 @@ const feedPersonas = [
 ];
 
 const app = express();
-app.use(cors());
+if (isTruthy(readConfig(envOverrides, "GATEWAY_TRUST_PROXY"))) {
+  app.set("trust proxy", 1);
+}
+app.disable("x-powered-by");
+app.use(securityHeaders({ production: productionRuntime }));
+app.use(cors(corsOptions()));
+app.use(createRateLimiter({
+  keyPrefix: "gateway",
+  windowMs: Number(readConfig(envOverrides, "GATEWAY_RATE_LIMIT_WINDOW_MS") || 60_000),
+  max: Number(readConfig(envOverrides, "GATEWAY_RATE_LIMIT_MAX") || (productionRuntime ? 300 : 3_000)),
+}));
+const sensitiveLimiter = createRateLimiter({
+  keyPrefix: "sensitive",
+  windowMs: 60_000,
+  max: productionRuntime ? 30 : 300,
+});
+const intelligenceLimiter = createRateLimiter({
+  keyPrefix: "intelligence",
+  windowMs: 60_000,
+  max: productionRuntime ? 20 : 200,
+});
+const aiAssetLimiter = createRateLimiter({
+  keyPrefix: "ai-assets",
+  windowMs: 60_000,
+  max: productionRuntime ? 10 : 100,
+});
+app.use(["/auth/nonce", "/auth/verify"], sensitiveLimiter);
+app.use("/intelligence", intelligenceLimiter);
+app.use(["/meme/image", "/meme/launch"], aiAssetLimiter);
 app.use(express.json({ limit: process.env.GATEWAY_JSON_LIMIT || "64kb" }));
-const intelligenceStore = new JsonIntelligenceStore();
+const intelligenceStore = new JsonIntelligenceStore({
+  allowInProduction: isTruthy(readConfig(envOverrides, "ALLOW_JSON_INTELLIGENCE_STORE_IN_PRODUCTION")),
+});
 const intelligenceRouter = createIntelligenceRouter({ store: intelligenceStore });
+
+app.get(/^\/mini(?:\/.*)?$/, (req, res, next) => {
+  const frontendUrl = (readConfig(envOverrides, "NEXT_PUBLIC_APP_URL") || readConfig(envOverrides, "VITE_APP_URL") || "").replace(/\/$/, "");
+  const gatewayOrigin = `${req.protocol}://${req.get("host")}`.replace(/\/$/, "");
+  if (!frontendUrl || frontendUrl === gatewayOrigin) return next();
+  return res.redirect(302, `${frontendUrl}${req.originalUrl}`);
+});
 
 function authenticate(req, res, next) {
   if (!requireAuth) {
@@ -160,7 +272,7 @@ function authenticate(req, res, next) {
     req.auth = session;
     return next();
   } catch (error) {
-    return res.status(401).json({ error: error.message });
+    return sendError(res, error, 401, "unauthorized");
   }
 }
 
@@ -238,28 +350,6 @@ if (productionRuntime) {
   }
 }
 
-/* ---------- rate-limit (simple in-memory) ---------- */
-const rateLimitMap = new Map();
-const RATE_LIMIT_WINDOW = 60_000;
-const RATE_LIMIT_MAX = 30;
-
-function rateLimit(req, res, next) {
-  const ip = req.ip || "unknown";
-  const now = Date.now();
-  const entry = rateLimitMap.get(ip) || { count: 0, resetAt: now + RATE_LIMIT_WINDOW };
-  if (now > entry.resetAt) {
-    entry.count = 0;
-    entry.resetAt = now + RATE_LIMIT_WINDOW;
-  }
-  entry.count += 1;
-  rateLimitMap.set(ip, entry);
-  if (entry.count > RATE_LIMIT_MAX) {
-    return res.status(429).json({ error: "rate limit exceeded" });
-  }
-  next();
-}
-app.use(rateLimit);
-
 app.post("/auth/nonce", (req, res) => {
   try {
     const { address } = req.body;
@@ -285,7 +375,7 @@ app.post("/auth/verify", (req, res) => {
 });
 
 /* ---------- provider + ABIs ---------- */
-const provider = new ethers.JsonRpcProvider(process.env.BSC_TESTNET_RPC_URL);
+const provider = new ethers.JsonRpcProvider(gatewayRpcUrl);
 
 const agentAbi = [
   "function tbas(uint256) view returns (address)",
@@ -643,7 +733,7 @@ app.post("/intelligence/users", authenticate, (req, res) => {
     if (!userId) return res.status(400).json({ error: "userId required" });
     return res.json({ user: intelligenceStore.upsertUser({ id: userId, walletAddress }) });
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    return sendError(res, error, 500, "Could not upsert intelligence user");
   }
 });
 
@@ -654,7 +744,7 @@ app.post("/intelligence/credits/add", authenticate, requireAdmin, (req, res) => 
     if (!userId || !amount) return res.status(400).json({ error: "userId and amount required" });
     return res.json({ credits: intelligenceStore.addCredits(userId, amount) });
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    return sendError(res, error, 500, "Could not add intelligence credits");
   }
 });
 
@@ -663,7 +753,7 @@ app.get("/intelligence/credits/:userId", authenticate, (req, res) => {
     const userId = enforceUserScope(req, req.params.userId);
     return res.json({ credits: intelligenceStore.getCredits(userId) });
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    return sendError(res, error, 500, "Could not read intelligence credits");
   }
 });
 
@@ -671,11 +761,18 @@ app.post("/intelligence/agents/:agentId/config", authenticate, async (req, res) 
   try {
     const userId = enforceUserScope(req, req.body.userId);
     if (!userId) return res.status(400).json({ error: "userId required" });
+    assertAllowedProvider(req.body.primaryProvider, providerValidationOptions);
+    assertProviderList(req.body.fallbackProviders, providerValidationOptions);
+    assertTaskTypeList(req.body.allowedTaskTypes);
+    assertManagedModeAllowed(req.body.mode, {
+      production: productionRuntime,
+      managedEnabled: managedIntelligenceEnabled,
+    });
     await assertAgentOwner(req, req.params.agentId);
     const config = intelligenceStore.setAgentConfig({ ...req.body, userId, agentId: req.params.agentId });
     return res.json({ config });
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    return sendError(res, error, 400, "Could not save agent intelligence config");
   }
 });
 
@@ -684,37 +781,55 @@ app.post("/intelligence/credentials", authenticate, async (req, res) => {
     const { agentId, provider, apiKey, endpointUrl, metadata } = req.body;
     const userId = enforceUserScope(req, req.body.userId);
     if (!userId || !provider || !apiKey) return res.status(400).json({ error: "userId, provider, and apiKey required" });
+    assertAllowedProvider(provider, providerValidationOptions);
+    assertByokCredentialInput({ provider, apiKey, endpointUrl });
+    if (endpointUrl) {
+      const endpointCheck = validateExternalEndpoint(endpointUrl);
+      if (!endpointCheck.ok) return res.status(400).json({ error: endpointCheck.error });
+    }
     if (agentId) {
       await assertAgentOwner(req, agentId);
     }
     const credential = intelligenceStore.storeProviderCredential({ userId, agentId, provider, apiKey, endpointUrl, metadata });
     return res.json({ credential });
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    return sendError(res, error, 400, "Could not store provider credential");
   }
 });
 
 app.post("/intelligence/providers/:provider/health", authenticate, async (req, res) => {
   try {
     const userId = req.body.userId ? enforceUserScope(req, req.body.userId) : authenticatedUserId(req);
+    assertAllowedProvider(req.params.provider, providerValidationOptions);
+    assertManagedModeAllowed(req.body.mode, {
+      production: productionRuntime,
+      managedEnabled: managedIntelligenceEnabled,
+    });
     const health = await intelligenceRouter.healthCheck(req.params.provider, req.body.mode, userId, req.body.agentId);
     return res.json({ health });
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    return sendError(res, error, 400, "Provider health check failed");
   }
 });
 
 app.post("/intelligence/run", authenticate, async (req, res) => {
   try {
     const userId = enforceUserScope(req, req.body.userId);
+    assertAllowedProvider(req.body.provider, providerValidationOptions);
+    assertProviderList(req.body.fallbackProviders, providerValidationOptions);
+    assertAllowedTaskType(req.body.taskType);
+    assertManagedModeAllowed(req.body.providerMode, {
+      production: productionRuntime,
+      managedEnabled: managedIntelligenceEnabled,
+    });
     if (req.body.agentId) {
       await assertAgentOwner(req, req.body.agentId);
     }
     const result = await intelligenceRouter.runAgentInference({ ...req.body, userId });
     return res.json(result);
   } catch (error) {
-    const status = error.message.includes("Insufficient intelligence credits") ? 402 : 500;
-    return res.status(status).json({ error: error.message });
+    const status = error.message.includes("Insufficient intelligence credits") ? 402 : 400;
+    return sendError(res, error, status, status === 402 ? "Insufficient intelligence credits" : "Intelligence request failed");
   }
 });
 
@@ -723,7 +838,7 @@ app.get("/intelligence/usage/:userId", authenticate, (req, res) => {
     const userId = enforceUserScope(req, req.params.userId);
     return res.json({ usage: intelligenceStore.getUsageEvents({ userId }) });
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    return sendError(res, error, 500, "Could not read intelligence usage");
   }
 });
 
@@ -738,13 +853,21 @@ app.get("/api/farcaster/manifest", (req, res) => {
   res.json(buildManifest({ appUrl: farcasterAppUrl(req) }));
 });
 
-app.get("/api/farcaster/og/:feedEventId", (req, res) => {
+app.get("/api/farcaster/og/:feedEventId", async (req, res) => {
   const event = getFeedEvent(req.params.feedEventId);
+  const svg = buildPreviewSvg(event || { id: "missing", feedEventId: "missing", type: "defi", title: "Strategy not found", metrics: {}, strategy: {}, agent: {} });
   if (!event) {
-    return res.status(404).type("image/svg+xml").send(buildPreviewSvg({ id: "missing", feedEventId: "missing", type: "defi", title: "Strategy not found", metrics: {}, strategy: {}, agent: {} }));
+    res.status(404);
   }
   res.setHeader("cache-control", "public, max-age=60");
-  return res.type("image/svg+xml").send(buildPreviewSvg(event));
+  try {
+    const { default: sharp } = await import("sharp");
+    const png = await sharp(Buffer.from(svg)).png().toBuffer();
+    return res.type("image/png").send(png);
+  } catch {
+    res.setHeader("x-clusterfi-og-fallback", "svg");
+    return res.type("image/svg+xml").send(svg);
+  }
 });
 
 app.get(["/api/farcaster/embed/:feedEventId", "/api/farcaster/frame/:feedEventId"], (req, res) => {

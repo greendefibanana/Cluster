@@ -26,6 +26,9 @@ export function createManagedProviders() {
 }
 
 export function createByokProvider(providerName, credential) {
+  if (isProductionRuntime() && providerName === "mock" && process.env.ALLOW_PRODUCTION_MOCKS !== "true") {
+    throw new Error("Mock BYOK provider is disabled in production");
+  }
   const options = { apiKey: credential?.apiKey, endpointUrl: credential?.endpointUrl };
   switch (providerName) {
     case "openai":

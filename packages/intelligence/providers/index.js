@@ -7,7 +7,14 @@ import { maskSecret } from "../../../gateway/intelligence/crypto.js";
 
 export { ClaudeProvider, GeminiProvider, MockProvider, CustomOpenAICompatibleProvider, OpenAIProvider };
 
+function isProductionRuntime() {
+  return process.env.NODE_ENV === "production" || process.env.GATEWAY_ENV === "production";
+}
+
 export function createByokProvider(provider, credential = {}) {
+  if (isProductionRuntime() && provider === "mock" && process.env.ALLOW_PRODUCTION_MOCKS !== "true") {
+    throw new Error("Mock BYOK provider is disabled in production");
+  }
   switch (provider) {
     case "openai":
       return new OpenAIProvider(credential);
@@ -70,6 +77,9 @@ export class FreeFirstProviderRegistry {
   resolveProvider({ userId, agentId = null, provider }) {
     if (this.isCoolingDown(provider)) {
       throw new Error(`${provider} is cooling down after a failed health check`);
+    }
+    if (isProductionRuntime() && provider === "mock" && process.env.ALLOW_PRODUCTION_MOCKS !== "true") {
+      throw new Error("Mock BYOK provider is disabled in production");
     }
     if (provider === "mock") return new MockProvider();
     const credential = this.store.getProviderCredential({ userId, agentId, provider });
