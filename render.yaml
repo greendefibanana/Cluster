@@ -3,13 +3,27 @@ services:
     name: clusterfi-gateway
     env: node
     plan: free
-    buildCommand: npm install
+    buildCommand: npm install && npm run build
     startCommand: node gateway/server.js
     envVars:
       - key: NODE_ENV
         value: production
-      - key: GATEWAY_PORT
-        value: 3000
+      - key: PORT
+        value: 10000
+      - key: GATEWAY_RPC_URL
+        value: https://rpc.sepolia.mantle.xyz
+      - key: MANTLE_RPC_URL
+        value: https://rpc.sepolia.mantle.xyz
+      - key: MANTLE_SEPOLIA_RPC_URL
+        value: https://rpc.sepolia.mantle.xyz
+      - key: ZERO_G_RPC_URL
+        value: https://evmrpc.0g.ai
+      - key: ZERO_G_MAINNET_RPC_URL
+        value: https://evmrpc.0g.ai
+      - key: ZERO_G_PROVIDER_MODE
+        value: real
+      - key: TEST_MODE
+        value: FULL_TESTNET
       - key: GATEWAY_CORS_ORIGINS
         value: # Set to Vercel URL
       - key: GATEWAY_AUTH_SECRET
@@ -22,15 +36,18 @@ services:
         value: # Add a funded 0G wallet private key
       - key: INTELLIGENCE_ENCRYPTION_KEY
         value: # Generate a random 32+ char string
-      - key: MANTLE_RPC_URL
-        value: https://rpc.mantle.xyz
-      - key: MANTLE_SEPOLIA_RPC_URL
-        value: https://rpc.sepolia.mantle.xyz
-      - key: ZERO_G_TESTNET_RPC_URL
-        value: https://evmrpc-testnet.0g.ai
-      - key: ZERO_G_MAINNET_RPC_URL
-        value: https://evmrpc.0g.ai
       - key: AGENT_NFT_ADDRESS
-        value: # From deployments/mantleSepolia.json
-      - key: SKILL_NFT_ADDRESS
-        value: # From deployments/mantleSepolia.json
+        value: 0x3fBD3191f6a7a7537971C1809570E04A8DE14b44
+      - key: ERC6551_REGISTRY_ADDRESS
+        value: 0x52132b5e5544c44363185b755Bf20eF744C668bc
+      - key: ERC6551_ACCOUNT_IMPLEMENTATION
+        value: 0xd7a99F62bd695050818a66abEC90CeCebb67C9EC
+      - key: MANTLE_TBA_ADDRESS
+        value: 0xBe9cd56F9aD6e49eC5B7DA9307fF186Fa57fBd81
+      - key: ZERO_G_IDENTITY_REGISTRY
+        value: 0xE73C023D734D7AdC64E65D5Cc9C26Ef521dE0b0D
+      - key: ZERO_G_REPUTATION_REGISTRY
+        value: 0x740B80f98b68D069F52C40AfCE411686Db4d2eb3
+      - key: ZERO_G_VALIDATION_REGISTRY
+        value: 0xA2e443A435aFe4D8C1F01E71e41EaC2a25f31a97
+

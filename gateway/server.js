@@ -111,6 +111,31 @@ const allowProductionMocks = isTruthy(readConfig(envOverrides, "ALLOW_PRODUCTION
 const managedIntelligenceEnabled = isTruthy(readConfig(envOverrides, "MANAGED_INTELLIGENCE_ENABLED"));
 const authService = new WalletAuthService({ secret: readConfig(envOverrides, "GATEWAY_AUTH_SECRET") });
 
+const zeroGRpcUrl = process.env.ZERO_G_RPC_URL || process.env.ZERO_G_MAINNET_RPC_URL || process.env.OG_RPC_URL || process.env.RPC_URL_0G_MAINNET || "https://evmrpc.0g.ai";
+function maskRpcUrl(url) {
+  if (!url) return "none";
+  try {
+    const parsed = new URL(url);
+    if (parsed.search || parsed.pathname.length > 2) {
+      return `${parsed.protocol}//${parsed.hostname}/***/****`;
+    }
+    return url;
+  } catch {
+    return "invalid";
+  }
+}
+
+console.log("--- Gateway Configuration ---");
+console.log(`Gateway RPC: ${maskRpcUrl(gatewayRpcUrl)}`);
+console.log(`0G RPC configured: ${zeroGRpcUrl ? "yes" : "no"} (${maskRpcUrl(zeroGRpcUrl)})`);
+console.log(`0G chainId target: 16661`);
+console.log(`ZeroG Provider Mode: ${readConfig(envOverrides, "ZERO_G_PROVIDER") || "mock"}`);
+console.log(`Test Mode: ${readConfig(envOverrides, "TEST_MODE") || "none"}`);
+console.log(`Agent NFT: ${contractAddress("agentNFT", "AGENT_NFT_ADDRESS") || "missing"}`);
+console.log(`Skill NFT: ${contractAddress("skillNFT", "SKILL_NFT_ADDRESS") || "missing"}`);
+console.log(`ERC6551 Registry: ${contractAddress("erc6551Registry", "ERC6551_REGISTRY_ADDRESS") || "missing"}`);
+console.log("-----------------------------");
+
 if (requireAuth) {
   authService.assertReady();
 }
@@ -222,6 +247,9 @@ const feedPersonas = [
 ];
 
 const app = express();
+app.get("/health", (req, res) => {
+  res.json({ ok: true, service: "clusterfi-gateway" });
+});
 if (isTruthy(readConfig(envOverrides, "GATEWAY_TRUST_PROXY"))) {
   app.set("trust proxy", 1);
 }
@@ -1313,7 +1341,7 @@ function pickModelForSkill(skillType) {
   }
 }
 
-const port = Number(process.env.GATEWAY_PORT || 3000);
+const port = Number(process.env.PORT || process.env.GATEWAY_PORT || 3000);
 app.listen(port, () => {
   console.log(`ClusterFi intelligence gateway listening on ${port}`);
   startAutoFeedLoop();
