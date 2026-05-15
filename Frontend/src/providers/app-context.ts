@@ -7,6 +7,8 @@ export interface WalletState {
   chainId: number | null;
   status: "disconnected" | "connecting" | "connected" | "error";
   error: string | null;
+  providerName?: string | null;
+  source?: "dynamic" | "injected" | "farcaster" | null;
 }
 
 export interface AppContextValue extends AppBootstrap {
@@ -20,7 +22,7 @@ export interface AppContextValue extends AppBootstrap {
   addComment: (postId: string, body: string) => Promise<void>;
   dismissNotification: (notificationId: string) => Promise<void>;
   executeAgent: (input: { agentId: string; message: string; action?: string }) => Promise<ExecutionRecord>;
-  connectWallet: (provider?: any) => Promise<void>;
+  connectWallet: (provider?: unknown) => Promise<void>;
   disconnectWallet: () => Promise<void>;
   ensureCorrectNetwork: () => Promise<void>;
   resetToChain: () => Promise<void>;
@@ -33,14 +35,15 @@ export interface AppContextValue extends AppBootstrap {
     strategyId: string;
     instrumentType?: string;
     amount: string;
+    asset?: "erc20" | "native";
     maxSlippageBps?: number;
   }) => Promise<void>;
-  addFundsToStrategyAccount: (accountAddress: string, amount: string) => Promise<void>;
+  addFundsToStrategyAccount: (accountAddress: string, amount: string, asset?: "erc20" | "native") => Promise<void>;
   pauseStrategyAccount: (accountAddress: string) => Promise<void>;
   resumeStrategyAccount: (accountAddress: string) => Promise<void>;
   revokeStrategyExecutor: (accountAddress: string) => Promise<void>;
-  withdrawStrategyAccount: (accountAddress: string, amount: string) => Promise<void>;
-  closeStrategyAccount: (accountAddress: string) => Promise<void>;
+  withdrawStrategyAccount: (accountAddress: string, amount: string, asset?: "erc20" | "native") => Promise<void>;
+  closeStrategyAccount: (accountAddress: string, asset?: "erc20" | "native") => Promise<void>;
   assignAgentToSwarm: (agentId: string, swarmTbaAddress: string) => Promise<void>;
   removeAgentFromSwarm: (swarmTbaAddress: string, agentId: string) => Promise<void>;
 }

@@ -2,6 +2,33 @@ import { appEnv } from "./env";
 import { createClientId } from "./id";
 import type { AgentExecutionInput, ExecutionRecord } from "../types/domain";
 
+export type IntelligenceProvider = "mock" | "openai" | "gemini" | "anthropic" | "claude" | "custom-openai";
+
+export interface ByokCredentialInput {
+  userId: string;
+  agentId?: string;
+  provider: IntelligenceProvider;
+  apiKey: string;
+  endpointUrl?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface IntelligenceRunInput {
+  userId: string;
+  agentId: string;
+  provider: IntelligenceProvider;
+  model?: string;
+  taskType?: string;
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  fallbackProviders?: IntelligenceProvider[];
+  metadata?: Record<string, unknown>;
+}
+
+async function parseGatewayError(response: Response, fallback: string) {
+  const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+  return new Error(payload?.error || `${fallback} (${response.status})`);
+}
+
 export async function executeAgentDirective(input: AgentExecutionInput & {
   tbaAddress: string;
   agentNftAddress: string;
@@ -96,4 +123,102 @@ export async function generateFeedPost(agentName: string, roleLabel: string, con
     throw new Error(payload?.error || `Failed to generate feed post (${response.status})`);
   }
   return response.json();
+}
+
+export async function saveByokCredential(input: ByokCredentialInput) {
+  const response = await fetch(`${appEnv.gatewayUrl}/intelligence/credentials`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    throw await parseGatewayError(response, "Failed to save BYOK credential");
+  }
+  return response.json() as Promise<{
+    credential: {
+      id: string;
+      userId: string;
+      agentId?: string | null;
+      provider: string;
+      endpointUrl?: string | null;
+      apiKey: string;
+      createdAt: string;
+      updatedAt: string;
+    };
+  }>;
+}
+
+export async function saveAgentIntelligenceConfig(input: {
+  userId: string;
+  agentId: string;
+  provider: IntelligenceProvider;
+  model?: string;
+}) {
+  const response = await fetch(`${appEnv.gatewayUrl}/intelligence/agents/${encodeURIComponent(input.agentId)}/config`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      userId: input.userId,
+      mode: "BYOK",
+      primaryProvider: input.provider,
+      model: input.model,
+      allowedTaskTypes: [
+        "agent-execute",
+        "defi-yield-analysis",
+        "defi-risk-review",
+        "prediction-market-thesis",
+        "prediction-market-risk-review",
+        "social-post",
+      ],
+    }),
+  });
+  if (!response.ok) {
+    throw await parseGatewayError(response, "Failed to save agent intelligence config");
+  }
+  return response.json();
+}
+
+export async function checkIntelligenceProviderHealth(input: {
+  userId: string;
+  agentId?: string;
+  provider: IntelligenceProvider;
+  mode?: "BYOK" | "MANAGED";
+}) {
+  const response = await fetch(`${appEnv.gatewayUrl}/intelligence/providers/${encodeURIComponent(input.provider)}/health`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      userId: input.userId,
+      agentId: input.agentId,
+      mode: input.mode || "BYOK",
+    }),
+  });
+  if (!response.ok) {
+    throw await parseGatewayError(response, "Provider health check failed");
+  }
+  return response.json() as Promise<{ health: Record<string, unknown> }>;
+}
+
+export async function runAgentByokInference(input: IntelligenceRunInput) {
+  const response = await fetch(`${appEnv.gatewayUrl}/intelligence/run`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      providerMode: "BYOK",
+      taskType: input.taskType || "agent-execute",
+      fallbackProviders: input.fallbackProviders ?? [],
+      ...input,
+    }),
+  });
+  if (!response.ok) {
+    throw await parseGatewayError(response, "Agent intelligence run failed");
+  }
+  return response.json() as Promise<{
+    output: unknown;
+    provider: string;
+    model: string;
+    proofURI?: string;
+    traceId?: string;
+    usage?: Record<string, unknown>;
+  }>;
 }

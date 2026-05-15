@@ -2,6 +2,7 @@ import { Outlet, Link, useLocation } from "react-router-dom";
 import { useState } from "react";
 import { useAppContext } from "../hooks/useAppContext";
 import { truncateAddress } from "../lib/format";
+import { appEnv, runtimeMode } from "../lib/env";
 
 export default function Layout() {
   const location = useLocation();
@@ -17,11 +18,13 @@ export default function Layout() {
       ? truncateAddress(wallet.account)
       : wallet.status === "connecting"
         ? "Connecting..."
-        : "Connect Wallet";
+        : runtimeMode.hasDynamic
+          ? "Connect with Dynamic"
+          : "Connect Wallet";
 
   const [showWalletPicker, setShowWalletPicker] = useState(false);
 
-  const handleConnect = async (provider?: any) => {
+  const handleConnect = async (provider?: unknown) => {
     setShowWalletPicker(false);
     await connectWallet(provider);
   };
@@ -96,7 +99,7 @@ export default function Layout() {
                       onClick={() => {
                         if (wallet.status === "connected") {
                           disconnectWallet();
-                        } else if (discoveredProviders.length > 1) {
+                        } else if (!runtimeMode.hasDynamic && discoveredProviders.length > 1) {
                           setShowWalletPicker(!showWalletPicker);
                         } else {
                           connectWallet();
@@ -108,7 +111,7 @@ export default function Layout() {
                       {walletLabel}
                     </button>
 
-                    {showWalletPicker && wallet.status !== "connected" && (
+                    {showWalletPicker && !runtimeMode.hasDynamic && wallet.status !== "connected" && (
                       <div className="absolute top-full left-0 right-0 mt-2 bg-[#1c1b1c] border border-[#3c494e]/30 rounded-lg shadow-xl z-[80] overflow-hidden flex flex-col">
                         {discoveredProviders.map((dp) => (
                           <button
@@ -128,6 +131,11 @@ export default function Layout() {
                     <div className="rounded-lg bg-surface-container-lowest border border-outline-variant/20 p-3 text-left">
                       <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Connected account</p>
                       <p className="font-label text-sm text-primary mt-1">{truncateAddress(wallet.account, 6)}</p>
+                      {wallet.providerName ? (
+                        <p className="font-body text-xs text-on-surface-variant mt-1">
+                          {wallet.source === "dynamic" ? "Dynamic" : wallet.providerName}
+                        </p>
+                      ) : null}
                     </div>
                   ) : null}
 
@@ -141,7 +149,7 @@ export default function Layout() {
                       className="w-full flex items-center gap-3 px-1 py-2 text-sm text-on-surface-variant hover:text-[#a4e6ff] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-md"
                     >
                       <span className="material-symbols-outlined text-lg" aria-hidden="true">lan</span>
-                      Switch to BNB Testnet
+                      Switch to {appEnv.chainName}
                     </button>
                     <button
                       onClick={resetToChain}
@@ -179,7 +187,7 @@ export default function Layout() {
             onClick={wallet.status === "connected" ? disconnectWallet : connectWallet}
             className="px-3 py-2 rounded-lg bg-surface-container-low text-primary font-label text-xs border border-outline-variant/20"
           >
-            {wallet.status === "connected" ? truncateAddress(wallet.account ?? "") : "Connect"}
+            {wallet.status === "connected" ? truncateAddress(wallet.account ?? "") : runtimeMode.hasDynamic ? "Dynamic" : "Connect"}
           </button>
         </div>
 

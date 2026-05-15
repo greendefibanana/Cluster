@@ -2,24 +2,109 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { formatRelativeTime } from "../lib/format";
 import { useAppContext } from "../hooks/useAppContext";
-import { fetchMemeAlpha, generateMemeConcept, generateMemeImage } from "../lib/gateway";
+import {
+  checkIntelligenceProviderHealth,
+  fetchMemeAlpha,
+  generateMemeConcept,
+  generateMemeImage,
+  runAgentByokInference,
+  saveAgentIntelligenceConfig,
+  saveByokCredential,
+  type IntelligenceProvider,
+} from "../lib/gateway";
 import { launchMemeTokenWithConnectedWallet } from "../lib/web3";
+
+const providerOptions: Array<{ value: IntelligenceProvider; label: string; model: string; needsEndpoint?: boolean }> = [
+  { value: "mock", label: "Mock Local", model: "mock-fast" },
+  { value: "gemini", label: "Gemini BYOK", model: "gemini-2.5-flash" },
+  { value: "openai", label: "OpenAI BYOK", model: "gpt-4o-mini" },
+  { value: "anthropic", label: "Claude BYOK", model: "claude-3-5-sonnet-latest" },
+  { value: "custom-openai", label: "Custom OpenAI-Compatible", model: "custom", needsEndpoint: true },
+];
+
+type AgentChatMessage = {
+  id: string;
+  role: "user" | "agent";
+  content: string;
+  createdAt: string;
+  provider?: string;
+  model?: string;
+  proofURI?: string;
+};
+
+type MemeThesis = {
+  keyword?: string;
+  verdict?: string;
+  reasoning?: string;
+  signal_strength?: string | number;
+  risk?: string | number;
+  [key: string]: unknown;
+};
+
+type MemeConcept = {
+  image_prompt?: string;
+  name?: string;
+  ticker?: string;
+  lore?: string;
+  launch_copy?: string;
+  risk_notes?: string;
+  [key: string]: unknown;
+};
+
+type MemeAssets = {
+  banner?: string;
+  mascot?: string;
+  logo?: string;
+  [key: string]: unknown;
+};
+
+type MemeLaunchResult = {
+  tokenAddress?: string | null;
+  txHash?: string;
+  supply?: string;
+  [key: string]: unknown;
+};
+
+function formatIntelligenceOutput(output: unknown) {
+  if (typeof output === "string") return output;
+  if (output && typeof output === "object" && "content" in output) {
+    return String((output as { content?: unknown }).content ?? "");
+  }
+  if (output && typeof output === "object") {
+    return JSON.stringify(output, null, 2);
+  }
+  return String(output ?? "");
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Unknown error";
+}
 
 export default function AgentEditor() {
   const navigate = useNavigate();
-  const { agents, swarms = [], executionHistory, executeAgent, wallet } = useAppContext();
+  const { agents, swarms = [], executionHistory, wallet } = useAppContext();
   const [activeTab, setActiveTab] = useState<"chat" | "memory">("chat");
   const [selectedEntityId, setSelectedEntityId] = useState(agents[0]?.id ?? "");
-  const [draft, setDraft] = useState("Draft a strategy thread for a BNB-native volatility setup.");
+  const [draft, setDraft] = useState("Review my current DeFi yield exposure and tell me what you would do next.");
   const [pending, setPending] = useState(false);
   const [showSkillToast, setShowSkillToast] = useState(false);
   const [toastType, setShowToastType] = useState<"equip" | "remove">("equip");
+  const [provider, setProvider] = useState<IntelligenceProvider>("mock");
+  const [model, setModel] = useState("mock-fast");
+  const [apiKey, setApiKey] = useState("");
+  const [endpointUrl, setEndpointUrl] = useState("");
+  const [maskedCredential, setMaskedCredential] = useState<string | null>(null);
+  const [byokStatus, setByokStatus] = useState<{ type: "idle" | "success" | "error"; text: string }>({
+    type: "idle",
+    text: "Mock local provider is ready. Add a BYOK key to use real inference.",
+  });
+  const [chatMessages, setChatMessages] = useState<AgentChatMessage[]>([]);
   
   // Meme state
-  const [theses, setTheses] = useState<any[]>([]);
-  const [concept, setConcept] = useState<any>(null);
-  const [images, setImages] = useState<any>(null);
-  const [launchResult, setLaunchResult] = useState<any>(null);
+  const [theses, setTheses] = useState<MemeThesis[]>([]);
+  const [concept, setConcept] = useState<MemeConcept | null>(null);
+  const [images, setImages] = useState<MemeAssets | null>(null);
+  const [launchResult, setLaunchResult] = useState<MemeLaunchResult | null>(null);
 
   const isSwarm = selectedEntityId.startsWith("swarm-");
   const rawId = selectedEntityId.replace("swarm-", "");
@@ -39,11 +124,80 @@ export default function AgentEditor() {
   } : rawAgent;
 
   const agentHistory = executionHistory.filter((entry) => entry.agentId === agent?.id);
+  const selectedProvider = providerOptions.find((item) => item.value === provider) ?? providerOptions[0];
+  const userId = wallet.account || agent?.ownerAddress || "local-demo-user";
 
   const handleSlotClick = (isFull: boolean) => {
     setShowToastType(isFull ? "remove" : "equip");
     setShowSkillToast(true);
   };
+
+  const handleProviderChange = (nextProvider: IntelligenceProvider) => {
+    const next = providerOptions.find((item) => item.value === nextProvider) ?? providerOptions[0];
+    setProvider(next.value);
+    setModel(next.model);
+    setApiKey("");
+    setEndpointUrl("");
+    setMaskedCredential(null);
+    setByokStatus({
+      type: "idle",
+      text: next.value === "mock" ? "Mock local provider is ready." : "Paste your key once. ClusterFi stores it on the gateway and only shows a masked value here.",
+    });
+  };
+
+  async function handleSaveByok(options: { rethrow?: boolean } = {}) {
+    if (!agent) return;
+
+    setPending(true);
+    setByokStatus({ type: "idle", text: "Saving provider configuration..." });
+    try {
+      if (provider !== "mock") {
+        if (!apiKey.trim() && !maskedCredential) {
+          throw new Error("Enter a BYOK API key before saving this provider.");
+        }
+        if (selectedProvider.needsEndpoint && !endpointUrl.trim()) {
+          throw new Error("Enter the HTTPS endpoint for this custom provider.");
+        }
+        if (apiKey.trim()) {
+          const saved = await saveByokCredential({
+            userId,
+            agentId: agent.id,
+            provider,
+            apiKey: apiKey.trim(),
+            endpointUrl: selectedProvider.needsEndpoint ? endpointUrl.trim() : undefined,
+            metadata: { model, source: "agent-editor" },
+          });
+          setMaskedCredential(saved.credential.apiKey);
+          setApiKey("");
+        }
+      }
+
+      await saveAgentIntelligenceConfig({
+        userId,
+        agentId: agent.id,
+        provider,
+        model,
+      });
+
+      const health = await checkIntelligenceProviderHealth({
+        userId,
+        agentId: agent.id,
+        provider,
+        mode: "BYOK",
+      });
+      setByokStatus({
+        type: "success",
+        text: `${selectedProvider.label} saved. Health: ${health.health?.ok === false ? "needs attention" : "ready"}.`,
+      });
+    } catch (error) {
+      setByokStatus({ type: "error", text: errorMessage(error) || "BYOK setup failed" });
+      if (options.rethrow) {
+        throw error;
+      }
+    } finally {
+      setPending(false);
+    }
+  }
 
   async function handleRun() {
     const trimmed = draft.trim();
@@ -56,7 +210,7 @@ export default function AgentEditor() {
       if (trimmed.startsWith("/scan")) {
         const query = trimmed.replace("/scan", "").trim();
         const res = await fetchMemeAlpha(query || "trending tokens on BSC, Pepe variants");
-        setTheses(res.result?.theses || []);
+        setTheses((res.result?.theses || []) as MemeThesis[]);
         setDraft("/concept 1");
       } else if (trimmed.startsWith("/concept")) {
         const index = parseInt(trimmed.replace("/concept", "").trim()) - 1 || 0;
@@ -66,7 +220,7 @@ export default function AgentEditor() {
         setDraft("/image");
       } else if (trimmed.startsWith("/image")) {
         if (!concept) throw new Error("No concept generated yet. Run /concept first.");
-        const res = await generateMemeImage(concept.image_prompt, concept.name, concept.ticker);
+        const res = await generateMemeImage(String(concept.image_prompt || ""), concept.name, concept.ticker);
         setImages(res.assets);
         setDraft("/launch");
       } else if (trimmed.startsWith("/launch")) {
@@ -74,24 +228,71 @@ export default function AgentEditor() {
         if (!wallet.account) throw new Error("Connect your wallet to launch a token.");
         const res = await launchMemeTokenWithConnectedWallet(
           wallet.account,
-          concept.name,
-          concept.ticker,
+          String(concept.name || "ClusterFi Token"),
+          String(concept.ticker || "CLFI"),
           "1000000000000000000000000000",
           false
         );
         setLaunchResult(res);
         setDraft("");
       } else {
-        await executeAgent({
+        if (provider !== "mock" && apiKey.trim()) {
+          await handleSaveByok({ rethrow: true });
+        }
+        if (provider !== "mock" && !apiKey.trim() && !maskedCredential) {
+          throw new Error("Save a BYOK API key for this provider before chatting with the agent.");
+        }
+
+        const now = new Date().toISOString();
+        setChatMessages((current) => [
+          ...current,
+          { id: `user-${Date.now()}`, role: "user", content: trimmed, createdAt: now },
+        ]);
+
+        const result = await runAgentByokInference({
+          userId,
           agentId: agent.id,
-          message: trimmed,
-          action: "post",
+          provider,
+          model,
+          taskType: "agent-execute",
+          fallbackProviders: [],
+          messages: [
+            {
+              role: "system",
+              content: `${agent.name} is a ClusterFi agent. Reply naturally, stay concise, and make custody, policy, proof, and risk assumptions explicit when relevant.`,
+            },
+            {
+              role: "user",
+              content: trimmed,
+            },
+          ],
+          metadata: {
+            prompt: trimmed,
+            surface: "agent-editor",
+            agentName: agent.name,
+          },
+        });
+        setChatMessages((current) => [
+          ...current,
+          {
+            id: result.traceId || `agent-${Date.now()}`,
+            role: "agent",
+            content: formatIntelligenceOutput(result.output),
+            createdAt: new Date().toISOString(),
+            provider: result.provider,
+            model: result.model,
+            proofURI: result.proofURI,
+          },
+        ]);
+        setByokStatus({
+          type: "success",
+          text: `Inference complete via ${result.provider}/${result.model}${result.proofURI ? " with 0G trace proof attached." : "."}`,
         });
         setDraft("");
-        setActiveTab("memory");
+        setActiveTab("chat");
       }
-    } catch (e: any) {
-      alert("Error: " + e.message);
+    } catch (error) {
+      setByokStatus({ type: "error", text: errorMessage(error) || "Agent run failed" });
     } finally {
       setPending(false);
     }
@@ -174,6 +375,112 @@ export default function AgentEditor() {
         </section>
 
         <section className="bg-surface-container-low rounded-xl p-4 ghost-border space-y-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+            <div>
+              <h2 className="font-body text-sm font-semibold text-on-surface flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary text-lg" aria-hidden="true">key</span>
+                BYOK Intelligence
+              </h2>
+              <p className="font-body text-xs text-on-surface-variant mt-1">
+                Natural-language agent chat runs through the server-side provider layer. Keys are submitted to the gateway and never stored in browser local state.
+              </p>
+            </div>
+            <span className={`font-label text-[10px] px-2 py-1 rounded-sm border uppercase tracking-widest ${
+              byokStatus.type === "success"
+                ? "bg-tertiary/10 text-tertiary border-tertiary/30"
+                : byokStatus.type === "error"
+                  ? "bg-error/10 text-error border-error/30"
+                  : "bg-primary/10 text-primary border-primary/30"
+            }`}>
+              {provider === "mock" ? "Local Mock" : maskedCredential ? "Key Saved" : "Needs Key"}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="byok-provider" className="block font-label text-xs uppercase tracking-widest text-on-surface-variant mb-2">
+                Provider
+              </label>
+              <select
+                id="byok-provider"
+                value={provider}
+                onChange={(event) => handleProviderChange(event.target.value as IntelligenceProvider)}
+                className="w-full bg-surface-container-lowest border border-outline-variant/20 rounded-xl py-3 px-3 text-on-surface font-body text-sm focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50"
+                disabled={pending}
+              >
+                {providerOptions.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="byok-model" className="block font-label text-xs uppercase tracking-widest text-on-surface-variant mb-2">
+                Model
+              </label>
+              <input
+                id="byok-model"
+                value={model}
+                onChange={(event) => setModel(event.target.value)}
+                className="w-full bg-surface-container-lowest border border-outline-variant/20 rounded-xl py-3 px-3 text-on-surface font-body text-sm focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50"
+                disabled={pending}
+              />
+            </div>
+          </div>
+
+          {selectedProvider.needsEndpoint ? (
+            <div>
+              <label htmlFor="byok-endpoint" className="block font-label text-xs uppercase tracking-widest text-on-surface-variant mb-2">
+                HTTPS Endpoint
+              </label>
+              <input
+                id="byok-endpoint"
+                value={endpointUrl}
+                onChange={(event) => setEndpointUrl(event.target.value)}
+                placeholder="https://api.example.com/v1/chat/completions"
+                className="w-full bg-surface-container-lowest border border-outline-variant/20 rounded-xl py-3 px-3 text-on-surface font-body text-sm focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50"
+                disabled={pending}
+              />
+            </div>
+          ) : null}
+
+          {provider !== "mock" ? (
+            <div>
+              <label htmlFor="byok-key" className="block font-label text-xs uppercase tracking-widest text-on-surface-variant mb-2">
+                API Key {maskedCredential ? `(${maskedCredential})` : ""}
+              </label>
+              <input
+                id="byok-key"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                placeholder={maskedCredential ? "Leave blank to keep saved key" : "Paste provider key"}
+                type="password"
+                autoComplete="off"
+                className="w-full bg-surface-container-lowest border border-outline-variant/20 rounded-xl py-3 px-3 text-on-surface font-body text-sm focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50"
+                disabled={pending}
+              />
+            </div>
+          ) : null}
+
+          <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
+            <p className={`font-body text-xs leading-relaxed ${
+              byokStatus.type === "error" ? "text-error" : byokStatus.type === "success" ? "text-tertiary" : "text-on-surface-variant"
+            }`}>
+              {byokStatus.text}
+            </p>
+            <button
+              onClick={() => void handleSaveByok()}
+              disabled={pending || (provider !== "mock" && !apiKey.trim() && !maskedCredential)}
+              className="md:w-auto w-full py-3 px-4 rounded-xl bg-gradient-to-br from-primary to-primary-container text-on-primary font-label font-bold hover:shadow-[0_0_15px_rgba(164,230,255,0.4)] transition-all disabled:opacity-50 disabled:hover:shadow-none flex items-center justify-center gap-2"
+            >
+              <span className="material-symbols-outlined text-sm" aria-hidden="true">{pending ? "progress_activity" : "encrypted"}</span>
+              {pending ? "Working..." : "Save BYOK"}
+            </button>
+          </div>
+        </section>
+
+        <section className="bg-surface-container-low rounded-xl p-4 ghost-border space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="font-body text-sm font-semibold text-on-surface">Skill Modules (TBA)</h2>
             <span className="font-label text-xs text-on-surface-variant">
@@ -224,7 +531,7 @@ export default function AgentEditor() {
                   </div>
                   <div className="bg-surface-container-low p-3 rounded-sm rounded-tl-none ghost-border">
                     <p className="font-body text-sm text-on-surface leading-relaxed mb-2">
-                      {agent.name} is ready for a new directive. Use normal chat or DGrid quick commands:
+                      {agent.name} is ready for natural-language strategy work through BYOK intelligence. Utility commands remain available:
                     </p>
                     <ul className="text-xs text-on-surface-variant list-disc pl-4 space-y-1">
                       <li><code>/scan</code> - Find alpha/theses</li>
@@ -234,6 +541,25 @@ export default function AgentEditor() {
                     </ul>
                   </div>
                 </div>
+
+                {chatMessages.map((message) => (
+                  <div key={message.id} className={`flex gap-3 ${message.role === "user" ? "flex-row-reverse" : ""}`}>
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-1 ${message.role === "user" ? "bg-tertiary/20" : "bg-primary/20"}`}>
+                      <span className={`material-symbols-outlined text-[12px] ${message.role === "user" ? "text-tertiary" : "text-primary"}`} aria-hidden="true">
+                        {message.role === "user" ? "person" : "smart_toy"}
+                      </span>
+                    </div>
+                    <div className={`max-w-[85%] p-3 rounded-sm border border-outline-variant/10 ${message.role === "user" ? "bg-surface-container text-right rounded-tr-none" : "bg-surface-container-low rounded-tl-none ghost-border"}`}>
+                      <p className="font-body text-sm text-on-surface leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                      {message.role === "agent" ? (
+                        <div className="mt-3 pt-3 border-t border-outline-variant/10 flex flex-wrap gap-2 text-[10px] font-label uppercase tracking-wider text-on-surface-variant">
+                          {message.provider ? <span>{message.provider}/{message.model}</span> : null}
+                          {message.proofURI ? <span className="text-tertiary">Proof attached</span> : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
 
                 {theses.length > 0 && (
                   <div className="bg-surface-container-low p-3 rounded-sm border border-tertiary/20">
@@ -316,7 +642,7 @@ export default function AgentEditor() {
                     onChange={(event) => setDraft(event.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleRun()}
                     className="w-full bg-surface-container-lowest border border-outline-variant/20 text-on-surface font-label text-sm rounded-sm py-3 pl-4 pr-12 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all placeholder:text-on-surface-variant/50"
-                    placeholder="Inject new directive or /scan..."
+                    placeholder="Ask your agent what to analyze, validate, or prepare..."
                     type="text"
                   />
                   <button

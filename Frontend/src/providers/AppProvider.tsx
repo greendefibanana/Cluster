@@ -1,9 +1,11 @@
 import {
   startTransition,
   useEffect,
+  useContext,
   useState,
   type ReactNode,
 } from "react";
+import { DynamicContext } from "@dynamic-labs/sdk-react-core";
 import { clustrRepository } from "../lib/data/repository";
 import { appEnv, runtimeMode } from "../lib/env";
 import { supabase } from "../lib/supabase";
@@ -15,6 +17,9 @@ import {
   requestSignature, 
   getWalletClient, 
   getPublicClient, 
+  getAgentPublicClient,
+  setDynamicWalletSession,
+  clearDynamicWalletSession,
   createOpenJob as createOpenJobWeb3, 
   placeBid as placeBidWeb3, 
   acceptBid as acceptBidWeb3, 
@@ -38,7 +43,19 @@ import { AppContext, type AppContextValue, type WalletState } from "./app-contex
 const initialData = createMockBootstrap();
 const SHARED_SYNC_INTERVAL_MS = 30_000;
 
+type DynamicPrimaryWallet = {
+  address?: string;
+  connector?: { name?: string };
+  getNetwork?: () => Promise<string | number | undefined>;
+  getWalletClient?: (chainId?: string) => Promise<{
+    writeContract: (input: unknown) => Promise<`0x${string}`>;
+  }>;
+  signMessage: (message: string) => Promise<string | undefined>;
+  switchNetwork: (chainId: number) => Promise<void>;
+};
+
 export function AppProvider({ children }: { children: ReactNode }) {
+  const dynamic = useContext(DynamicContext);
   const [data, setData] = useState<AppBootstrap>(initialData);
   const [appStatus, setAppStatus] = useState<LoadStatus>("loading");
   const [appError, setAppError] = useState<string | null>(null);
@@ -48,7 +65,89 @@ export function AppProvider({ children }: { children: ReactNode }) {
     chainId: null,
     status: "disconnected",
     error: null,
+    providerName: null,
+    source: null,
   });
+
+  useEffect(() => {
+    if (!dynamic || !runtimeMode.hasDynamic) {
+      return;
+    }
+
+    const primaryWallet = dynamic.primaryWallet as DynamicPrimaryWallet | null;
+
+    if (!dynamic.sdkHasLoaded) {
+      return;
+    }
+
+    if (!primaryWallet?.address) {
+      clearDynamicWalletSession();
+      setWallet((current) =>
+        current.source === "dynamic" || current.status === "connecting"
+          ? {
+              account: null,
+              chainId: null,
+              status: "disconnected",
+              error: null,
+              providerName: null,
+              source: null,
+            }
+          : current,
+      );
+      return;
+    }
+
+    let cancelled = false;
+
+    async function syncDynamicWallet() {
+      try {
+        const [network, walletClient] = await Promise.all([
+          primaryWallet.getNetwork?.().catch(() => dynamic.network),
+          primaryWallet.getWalletClient?.(String(appEnv.chainId)),
+        ]);
+
+        if (!walletClient) {
+          throw new Error("Dynamic wallet client is not available yet");
+        }
+
+        if (cancelled) {
+          return;
+        }
+
+        setDynamicWalletSession({
+          walletClient,
+          signMessage: (message) => primaryWallet.signMessage(message),
+          switchNetwork: (chainId) => primaryWallet.switchNetwork(chainId),
+        });
+
+        const chainId = Number(network ?? dynamic.network ?? appEnv.chainId);
+        setWallet({
+          account: primaryWallet.address,
+          chainId: Number.isFinite(chainId) ? chainId : appEnv.chainId,
+          status: "connected",
+          error: null,
+          providerName: primaryWallet.connector?.name ?? "Dynamic",
+          source: "dynamic",
+        });
+      } catch (error) {
+        if (!cancelled) {
+          setWallet((current) => ({
+            ...current,
+            status: "error",
+            error: error instanceof Error ? error.message : "Dynamic wallet sync failed",
+            providerName: current.providerName ?? "Dynamic",
+            source: "dynamic",
+          }));
+        }
+      }
+    }
+
+    void syncDynamicWallet();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dynamic, dynamic?.sdkHasLoaded, dynamic?.primaryWallet, dynamic?.network]);
 
   useEffect(() => {
     setDiscoveredProviders(getDiscoveredProviders());
@@ -58,15 +157,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (accounts[0]) {
         setWallet((current) => ({
           ...current,
-          account: accounts[0],
+          account: current.source === "dynamic" ? current.account : accounts[0],
           status: "connected",
+          providerName: current.providerName ?? "Injected wallet",
+          source: current.source ?? "injected",
         }));
       } else {
-        setWallet((current) => ({
-          ...current,
-          account: null,
-          status: "disconnected",
-        }));
+        setWallet((current) =>
+          current.source === "dynamic"
+            ? current
+            : {
+                ...current,
+                account: null,
+                status: "disconnected",
+                providerName: null,
+                source: null,
+              },
+        );
       }
     };
 
@@ -263,9 +370,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return record;
   }
 
-  async function connectWallet(provider?: any) {
+  async function connectWallet(provider?: unknown) {
     setWallet((current) => ({ ...current, status: "connecting", error: null }));
     try {
+      if (!provider && runtimeMode.hasDynamic && dynamic?.setShowAuthFlow) {
+        dynamic.setShowAuthFlow(true);
+        return;
+      }
+
       const result = await connectInjectedWallet(provider);
       
       // Force a signature to ensure actual wallet communication
@@ -277,6 +389,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         chainId: result.chainId,
         status: "connected",
         error: null,
+        providerName: "Injected wallet",
+        source: "injected",
       });
     } catch (error) {
       setWallet({
@@ -284,26 +398,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
         chainId: null,
         status: "error",
         error: error instanceof Error ? error.message : "Wallet connection failed",
+        providerName: null,
+        source: null,
       });
     }
   }
 
   async function disconnectWallet() {
+    if (wallet.source === "dynamic" && dynamic?.handleLogOut) {
+      await dynamic.handleLogOut();
+      clearDynamicWalletSession();
+      setWallet({
+        account: null,
+        chainId: null,
+        status: "disconnected",
+        error: null,
+        providerName: null,
+        source: null,
+      });
+      return;
+    }
+
     await disconnectInjectedWallet();
     setWallet({
       account: null,
       chainId: null,
       status: "disconnected",
       error: null,
+      providerName: null,
+      source: null,
     });
   }
 
   async function ensureCorrectNetwork() {
     try {
       await switchToConfiguredChain();
-      if (wallet.chainId) {
-        setWallet((current) => ({ ...current, chainId: wallet.chainId }));
-      }
+      setWallet((current) => ({ ...current, chainId: appEnv.chainId }));
     } catch (error) {
       setWallet((current) => ({
         ...current,
@@ -319,7 +449,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await createOpenJobWeb3(
         getWalletClient(),
-        getPublicClient(),
+        getAgentPublicClient(),
         wallet.account,
         evaluator,
         budgetAmount,
@@ -340,7 +470,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await placeBidWeb3(
         getWalletClient(),
-        getPublicClient(),
+        getAgentPublicClient(),
         wallet.account,
         jobId,
         providerKind,
@@ -360,7 +490,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await acceptBidWeb3(
         getWalletClient(),
-        getPublicClient(),
+        getAgentPublicClient(),
         wallet.account,
         jobId,
         bidIndex,
@@ -383,6 +513,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     strategyId: string;
     instrumentType?: string;
     amount: string;
+    asset?: "erc20" | "native";
     maxSlippageBps?: number;
   }) {
     if (!wallet.account) throw new Error("Wallet not connected");
@@ -396,7 +527,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         input.amount,
         input.maxSlippageBps ?? 100
       );
-      await depositToUserStrategyAccount(wallet.account, result.accountAddress, input.amount);
+      await depositToUserStrategyAccount(wallet.account, result.accountAddress, input.amount, input.asset ?? "erc20");
       await refreshApp({ silent: true });
       setAppStatus("success");
     } catch (error) {
@@ -406,11 +537,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function addFundsToStrategyAccount(accountAddress: string, amount: string) {
+  async function addFundsToStrategyAccount(accountAddress: string, amount: string, asset: "erc20" | "native" = "erc20") {
     if (!wallet.account) throw new Error("Wallet not connected");
     setAppStatus("loading");
     try {
-      await depositToUserStrategyAccount(wallet.account, accountAddress, amount);
+      await depositToUserStrategyAccount(wallet.account, accountAddress, amount, asset);
       await refreshApp({ silent: true });
       setAppStatus("success");
     } catch (error) {
@@ -438,15 +569,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await refreshApp({ silent: true });
   }
 
-  async function withdrawStrategyAccount(accountAddress: string, amount: string) {
+  async function withdrawStrategyAccount(accountAddress: string, amount: string, asset: "erc20" | "native" = "erc20") {
     if (!wallet.account) throw new Error("Wallet not connected");
-    await withdrawFromUserStrategyAccount(wallet.account, accountAddress, amount);
+    await withdrawFromUserStrategyAccount(wallet.account, accountAddress, amount, asset);
     await refreshApp({ silent: true });
   }
 
-  async function closeStrategyAccount(accountAddress: string) {
+  async function closeStrategyAccount(accountAddress: string, asset: "erc20" | "native" = "erc20") {
     if (!wallet.account) throw new Error("Wallet not connected");
-    await closeUserStrategyAccount(wallet.account, accountAddress);
+    await closeUserStrategyAccount(wallet.account, accountAddress, asset);
     await refreshApp({ silent: true });
   }
 
@@ -459,6 +590,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       setAppError(error instanceof Error ? error.message : "Failed to assign agent");
       setAppStatus("error");
+      throw error;
     }
   }
 
@@ -471,6 +603,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       setAppError(error instanceof Error ? error.message : "Failed to remove agent");
       setAppStatus("error");
+      throw error;
     }
   }
 

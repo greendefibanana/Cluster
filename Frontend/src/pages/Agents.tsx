@@ -1,7 +1,24 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppContext } from "../hooks/useAppContext";
+import {
+  saveAgentIntelligenceConfig,
+  saveByokCredential,
+  type IntelligenceProvider,
+} from "../lib/gateway";
 import { mintNewAgent } from "../lib/web3";
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Unknown error";
+}
+
+const intelligenceSources: Array<{ value: IntelligenceProvider; label: string; model: string; needsKey: boolean; needsEndpoint?: boolean }> = [
+  { value: "mock", label: "Mock Local", model: "mock-fast", needsKey: false },
+  { value: "gemini", label: "Gemini BYOK", model: "gemini-2.5-flash", needsKey: true },
+  { value: "openai", label: "OpenAI BYOK", model: "gpt-4o-mini", needsKey: true },
+  { value: "anthropic", label: "Claude BYOK", model: "claude-3-5-sonnet-latest", needsKey: true },
+  { value: "custom-openai", label: "Custom OpenAI-Compatible", model: "custom", needsKey: true, needsEndpoint: true },
+];
 
 export default function Agents() {
   const navigate = useNavigate();
@@ -9,24 +26,67 @@ export default function Agents() {
   const [featured, secondary, ...rest] = [...agents].sort((a, b) => a.rank - b.rank);
   const [minting, setMinting] = useState(false);
   const [agentName, setAgentName] = useState("");
+  const [agentRole, setAgentRole] = useState("Operative");
+  const [agentDescription, setAgentDescription] = useState("Freshly minted operative agent.");
+  const [showMintToast, setShowMintToast] = useState(false);
+  const [mintMessage, setMintMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [intelligenceProvider, setIntelligenceProvider] = useState<IntelligenceProvider>("mock");
+  const [intelligenceModel, setIntelligenceModel] = useState("mock-fast");
+  const [intelligenceApiKey, setIntelligenceApiKey] = useState("");
+  const [intelligenceEndpoint, setIntelligenceEndpoint] = useState("");
 
   // Filter agents owned by the current user
   const myAgents = agents.filter(a => a.ownerAddress.toLowerCase() === wallet.account?.toLowerCase());
 
   const handleMint = async () => {
+    setMintMessage(null);
     if (!wallet.account) {
-      alert("Please connect wallet first");
+      setMintMessage({ type: "error", text: "Connect a wallet before minting an agent." });
       return;
     }
     const finalName = agentName.trim() || "New Swarm Agent";
+    const finalRole = agentRole.trim() || "Operative";
+    const finalDescription = agentDescription.trim() || "Freshly minted operative agent.";
+    const selectedSource = intelligenceSources.find((source) => source.value === intelligenceProvider) ?? intelligenceSources[0];
+    if (selectedSource.needsKey && !intelligenceApiKey.trim()) {
+      setMintMessage({ type: "error", text: `Paste a ${selectedSource.label} key or choose Mock Local for this agent.` });
+      return;
+    }
+    if (selectedSource.needsEndpoint && !intelligenceEndpoint.trim()) {
+      setMintMessage({ type: "error", text: "Enter the HTTPS endpoint for the custom OpenAI-compatible provider." });
+      return;
+    }
     setMinting(true);
     try {
-      await mintNewAgent(wallet.account, finalName, "Operative", "Freshly minted operative agent.");
-      alert("Agent minted successfully!");
+      const minted = await mintNewAgent(wallet.account, finalName, finalRole, finalDescription);
+      if (minted.agentId) {
+        if (selectedSource.needsKey) {
+          await saveByokCredential({
+            userId: wallet.account,
+            agentId: minted.agentId,
+            provider: intelligenceProvider,
+            apiKey: intelligenceApiKey.trim(),
+            endpointUrl: selectedSource.needsEndpoint ? intelligenceEndpoint.trim() : undefined,
+            metadata: { model: intelligenceModel, source: "mint-agent" },
+          });
+        }
+        await saveAgentIntelligenceConfig({
+          userId: wallet.account,
+          agentId: minted.agentId,
+          provider: intelligenceProvider,
+          model: intelligenceModel,
+        });
+      }
       setAgentName("");
+      setAgentRole("Operative");
+      setAgentDescription("Freshly minted operative agent.");
+      setIntelligenceApiKey("");
+      setIntelligenceEndpoint("");
       await refreshApp();
-    } catch (e: any) {
-      alert("Mint failed: " + e.message);
+      setShowMintToast(false);
+      setMintMessage({ type: "success", text: `${finalName} was minted and linked to ${selectedSource.label} intelligence.` });
+    } catch (error) {
+      setMintMessage({ type: "error", text: `Mint failed: ${errorMessage(error)}` });
     } finally {
       setMinting(false);
     }
@@ -48,26 +108,24 @@ export default function Agents() {
             <span className="material-symbols-outlined text-tertiary text-lg" aria-hidden="true">military_tech</span>
             <span className="font-label text-sm text-tertiary uppercase tracking-widest">Season 04 Elite</span>
           </div>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Agent Name..."
-              value={agentName}
-              onChange={(e) => setAgentName(e.target.value)}
-              className="bg-surface-container-high border border-outline-variant/30 rounded-lg px-3 py-2 text-sm text-on-surface focus:outline-none focus:border-primary/50"
-              disabled={minting}
-            />
-            <button 
-              onClick={handleMint}
-              disabled={minting}
-              className="flex items-center gap-2 bg-primary text-on-primary font-bold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50"
-            >
-              <span className="material-symbols-outlined">add_circle</span>
-              {minting ? "Minting..." : "Mint Agent"}
-            </button>
-          </div>
+          <button 
+            onClick={() => {
+              setMintMessage(null);
+              setShowMintToast(true);
+            }}
+            className="flex items-center gap-2 bg-primary text-on-primary font-bold px-4 py-2 rounded-lg hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          >
+            <span className="material-symbols-outlined" aria-hidden="true">add_circle</span>
+            Mint Agent
+          </button>
         </div>
       </div>
+
+      {mintMessage ? (
+        <div className={`max-w-7xl mx-auto rounded-xl border px-4 py-3 text-sm font-body ${mintMessage.type === "success" ? "border-tertiary/30 bg-tertiary/10 text-tertiary" : "border-error/30 bg-error/10 text-error"}`}>
+          {mintMessage.text}
+        </div>
+      ) : null}
 
       {myAgents.length > 0 && (
         <div className="max-w-7xl mx-auto space-y-6">
@@ -252,6 +310,171 @@ export default function Agents() {
           </button>
         ))}
       </div>
+
+      {showMintToast ? (
+        <div className="fixed inset-0 z-[100] flex items-end md:items-center justify-center p-4">
+          <button
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm cursor-default"
+            onClick={() => !minting && setShowMintToast(false)}
+            aria-label="Close mint agent modal"
+          />
+          <div className="relative w-full max-w-md max-h-[90vh] bg-surface-container-low rounded-2xl border border-outline-variant/20 shadow-2xl overflow-y-auto animate-in slide-in-from-bottom-8 md:slide-in-from-center duration-300">
+            <div className="p-6">
+              <div className="flex justify-between items-start mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-primary/10 text-primary">
+                    <span className="material-symbols-outlined text-2xl" aria-hidden="true">smart_toy</span>
+                  </div>
+                  <div>
+                    <h3 className="font-headline text-xl font-bold text-on-surface">Mint Agent</h3>
+                    <p className="font-body text-xs text-on-surface-variant uppercase tracking-widest">Agent Inventory</p>
+                  </div>
+                </div>
+                <button disabled={minting} onClick={() => setShowMintToast(false)} className="text-on-surface-variant hover:text-on-surface transition-colors h-10 w-10 rounded-lg flex items-center justify-center disabled:opacity-50">
+                  <span className="material-symbols-outlined" aria-hidden="true">close</span>
+                </button>
+              </div>
+
+              <div className="space-y-4 mb-6">
+                <div>
+                  <label htmlFor="mint-agent-name" className="block font-label text-sm text-on-surface-variant mb-2">Agent Name</label>
+                  <input
+                    id="mint-agent-name"
+                    type="text"
+                    placeholder="New Swarm Agent"
+                    value={agentName}
+                    onChange={(e) => setAgentName(e.target.value)}
+                    className="w-full bg-surface-container-lowest border border-outline-variant/20 rounded-xl py-3 px-3 text-on-surface font-body text-sm focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all"
+                    disabled={minting}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="mint-agent-role" className="block font-label text-sm text-on-surface-variant mb-2">Role</label>
+                  <input
+                    id="mint-agent-role"
+                    type="text"
+                    value={agentRole}
+                    onChange={(e) => setAgentRole(e.target.value)}
+                    className="w-full bg-surface-container-lowest border border-outline-variant/20 rounded-xl py-3 px-3 text-on-surface font-body text-sm focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all"
+                    disabled={minting}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="mint-agent-description" className="block font-label text-sm text-on-surface-variant mb-2">Description</label>
+                  <textarea
+                    id="mint-agent-description"
+                    value={agentDescription}
+                    onChange={(e) => setAgentDescription(e.target.value)}
+                    className="w-full bg-surface-container-lowest border border-outline-variant/20 rounded-xl p-3 text-on-surface font-body text-sm focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all resize-none h-24"
+                    disabled={minting}
+                  />
+                </div>
+                <div className="rounded-xl border border-outline-variant/20 bg-surface-container-high/40 p-3 space-y-3">
+                  <div>
+                    <h4 className="font-label text-xs uppercase tracking-widest text-primary">Intelligence Source</h4>
+                    <p className="font-body text-xs text-on-surface-variant mt-1">
+                      Bind the minted agent to BYOK inference now. You can change this later in Agent Editor.
+                    </p>
+                  </div>
+                  <div>
+                    <label htmlFor="mint-agent-provider" className="block font-label text-sm text-on-surface-variant mb-2">Provider</label>
+                    <select
+                      id="mint-agent-provider"
+                      value={intelligenceProvider}
+                      onChange={(event) => {
+                        const next = intelligenceSources.find((source) => source.value === event.target.value) ?? intelligenceSources[0];
+                        setIntelligenceProvider(next.value);
+                        setIntelligenceModel(next.model);
+                        setIntelligenceApiKey("");
+                        setIntelligenceEndpoint("");
+                      }}
+                      className="w-full bg-surface-container-lowest border border-outline-variant/20 rounded-xl py-3 px-3 text-on-surface font-body text-sm focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all"
+                      disabled={minting}
+                    >
+                      {intelligenceSources.map((source) => (
+                        <option key={source.value} value={source.value}>{source.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="mint-agent-model" className="block font-label text-sm text-on-surface-variant mb-2">Model</label>
+                    <input
+                      id="mint-agent-model"
+                      type="text"
+                      value={intelligenceModel}
+                      onChange={(e) => setIntelligenceModel(e.target.value)}
+                      className="w-full bg-surface-container-lowest border border-outline-variant/20 rounded-xl py-3 px-3 text-on-surface font-body text-sm focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all"
+                      disabled={minting}
+                    />
+                  </div>
+                  {intelligenceSources.find((source) => source.value === intelligenceProvider)?.needsEndpoint ? (
+                    <div>
+                      <label htmlFor="mint-agent-endpoint" className="block font-label text-sm text-on-surface-variant mb-2">HTTPS Endpoint</label>
+                      <input
+                        id="mint-agent-endpoint"
+                        type="url"
+                        value={intelligenceEndpoint}
+                        onChange={(e) => setIntelligenceEndpoint(e.target.value)}
+                        placeholder="https://api.example.com/v1/chat/completions"
+                        className="w-full bg-surface-container-lowest border border-outline-variant/20 rounded-xl py-3 px-3 text-on-surface font-body text-sm focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all"
+                        disabled={minting}
+                      />
+                    </div>
+                  ) : null}
+                  {intelligenceSources.find((source) => source.value === intelligenceProvider)?.needsKey ? (
+                    <div>
+                      <label htmlFor="mint-agent-api-key" className="block font-label text-sm text-on-surface-variant mb-2">BYOK API Key</label>
+                      <input
+                        id="mint-agent-api-key"
+                        type="password"
+                        autoComplete="off"
+                        value={intelligenceApiKey}
+                        onChange={(e) => setIntelligenceApiKey(e.target.value)}
+                        placeholder="Stored encrypted on the gateway"
+                        className="w-full bg-surface-container-lowest border border-outline-variant/20 rounded-xl py-3 px-3 text-on-surface font-body text-sm focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all"
+                        disabled={minting}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              {mintMessage?.type === "error" ? (
+                <div className="mb-6 rounded-xl border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
+                  {mintMessage.text}
+                </div>
+              ) : null}
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowMintToast(false)}
+                  disabled={minting}
+                  className="flex-1 py-3 rounded-xl border border-outline-variant/20 text-on-surface font-label font-bold hover:bg-surface-container-high transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => void handleMint()}
+                  disabled={minting}
+                  className="flex-1 py-3 rounded-xl bg-gradient-to-br from-primary to-primary-container text-on-primary font-label font-bold hover:shadow-[0_0_15px_rgba(164,230,255,0.4)] transition-all disabled:opacity-50 disabled:hover:shadow-none flex items-center justify-center gap-2"
+                >
+                  {minting ? (
+                    <>
+                      <span className="material-symbols-outlined animate-spin text-sm" aria-hidden="true">progress_activity</span>
+                      Minting...
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined text-sm" aria-hidden="true">add_circle</span>
+                      Mint Agent
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

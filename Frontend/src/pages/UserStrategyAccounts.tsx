@@ -16,6 +16,7 @@ export default function UserStrategyAccounts() {
   } = useAppContext();
   const [busyAccount, setBusyAccount] = useState<string | null>(null);
   const [withdrawAmounts, setWithdrawAmounts] = useState<Record<string, string>>({});
+  const [withdrawAssets, setWithdrawAssets] = useState<Record<string, "native" | "erc20">>({});
   const [actionError, setActionError] = useState<string | null>(null);
 
   const runAccountAction = async (accountAddress: string, action: () => Promise<void>) => {
@@ -108,10 +109,26 @@ export default function UserStrategyAccounts() {
                   placeholder="Amount"
                   className="min-h-10 w-28 rounded-lg border border-outline-variant/20 bg-surface-container-lowest px-3 py-2 font-body text-sm text-on-surface focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
                 />
+                <select
+                  aria-label={`Withdraw asset for ${account.strategyTitle}`}
+                  value={withdrawAssets[account.accountAddress] ?? "native"}
+                  onChange={(event) => setWithdrawAssets((current) => ({
+                    ...current,
+                    [account.accountAddress]: event.target.value as "native" | "erc20",
+                  }))}
+                  className="min-h-10 rounded-lg border border-outline-variant/20 bg-surface-container-lowest px-3 py-2 font-body text-sm text-on-surface focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                >
+                  <option value="native">MNT</option>
+                  <option value="erc20">cfUSD</option>
+                </select>
                 <button
                   onClick={() => runAccountAction(
                     account.accountAddress,
-                    () => withdrawStrategyAccount(account.accountAddress, withdrawAmounts[account.accountAddress] || "0")
+                    () => withdrawStrategyAccount(
+                      account.accountAddress,
+                      withdrawAmounts[account.accountAddress] || "0",
+                      withdrawAssets[account.accountAddress] ?? "native"
+                    )
                   )}
                   disabled={wallet.status !== "connected" || busyAccount === account.accountAddress || !(Number(withdrawAmounts[account.accountAddress]) > 0)}
                   className="min-h-10 rounded-lg bg-gradient-primary px-4 py-2 font-headline text-sm font-semibold text-on-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
@@ -119,7 +136,10 @@ export default function UserStrategyAccounts() {
                   Withdraw
                 </button>
                 <button
-                  onClick={() => runAccountAction(account.accountAddress, () => closeStrategyAccount(account.accountAddress))}
+                  onClick={() => runAccountAction(account.accountAddress, () => closeStrategyAccount(
+                    account.accountAddress,
+                    withdrawAssets[account.accountAddress] ?? "native"
+                  ))}
                   disabled={wallet.status !== "connected" || busyAccount === account.accountAddress}
                   className="min-h-10 rounded-lg border border-outline-variant/20 px-4 py-2 font-headline text-sm text-on-surface-variant focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
                 >

@@ -180,7 +180,7 @@ async function tryLoadSupabaseData(baseState: PersistedState): Promise<Persisted
 }
 
 async function tryEnrichFromChain(state: PersistedState, ownerAddress?: string): Promise<PersistedState> {
-  const { publicClient, fetchAgentsForOwner, fetchSwarmsForOwner, fetchJobs, fetchUserStrategyAccounts } = await import("../web3");
+  const { agentPublicClient, fetchAgentsForOwner, fetchSwarmsForOwner, fetchJobs, fetchUserStrategyAccounts } = await import("../web3");
   if (!runtimeMode.hasRpc) {
     return state;
   }
@@ -191,7 +191,7 @@ async function tryEnrichFromChain(state: PersistedState, ownerAddress?: string):
     const [liveAgents, liveSwarms, liveJobs, liveStrategyAccounts] = await Promise.all([
       ownerAddress ? fetchAgentsForOwner(ownerAddress) : Promise.resolve([]),
       ownerAddress ? fetchSwarmsForOwner(ownerAddress) : Promise.resolve([]),
-      fetchJobs(publicClient),
+      fetchJobs(agentPublicClient),
       ownerAddress ? fetchUserStrategyAccounts(ownerAddress) : Promise.resolve([])
     ]);
 
