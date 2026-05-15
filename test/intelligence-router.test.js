@@ -116,12 +116,19 @@ describe("ClusterFi source of intelligence", function () {
       agentId: "agent-1",
       provider: "openai",
       apiKey: "sk-real-user-secret",
+      metadata: {
+        model: "gpt-4o-mini",
+        apiKey: "metadata-secret",
+        authorization: "Bearer metadata-secret",
+        nested: { token: "nested-secret" },
+      },
     });
     const raw = store.state.providerCredentials[0];
 
     expect(masked.apiKey).to.match(/^\*\*\*\*/);
     expect(raw.encryptedApiKey).to.not.include("sk-real-user-secret");
     expect(decryptSecret(raw.encryptedApiKey, "test-intelligence-encryption-key")).to.equal("sk-real-user-secret");
+    expect(raw.metadata).to.deep.equal({ model: "gpt-4o-mini", nested: "[redacted-object]" });
   });
 
   it("supports BYOK mode without charging managed credits when using a user provider", async function () {

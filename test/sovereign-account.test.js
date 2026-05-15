@@ -60,6 +60,33 @@ describe("Mantle-native Sovereign Account layer", function () {
     return adapter.interface.encodeFunctionData("execute", [payload]);
   }
 
+  async function policyProof(account, signer, executor, adapter, data, label = "strategy") {
+    const block = await ethers.provider.getBlock("latest");
+    const strategyId = ethers.id(label);
+    const policyDecisionHash = ethers.id(`${label}:policy-approved`);
+    const proofURI = `0g-local://policy/${label}`;
+    const expiresAt = BigInt(block.timestamp + 3600);
+    const digest = await account.policyApprovalDigest(
+      executor.address || executor,
+      adapter,
+      data,
+      strategyId,
+      policyDecisionHash,
+      proofURI,
+      expiresAt,
+    );
+    const signature = await signer.signMessage(ethers.getBytes(digest));
+    return { strategyId, policyDecisionHash, proofURI, expiresAt, signature };
+  }
+
+  async function intentPolicyProof(account, signer, executor, adapter, intent, label = "intent") {
+    const data = ethers.AbiCoder.defaultAbiCoder().encode(
+      ["address", "uint256", "address", "uint256", "bytes32", "address", "bytes32", "string"],
+      [intent.intentEngine, intent.targetChainId, intent.asset, intent.amount, intent.strategyType, adapter, intent.riskConstraints, intent.proofURI],
+    );
+    return policyProof(account, signer, executor, adapter, data, label);
+  }
+
   it("creates a user-owned Sovereign Account and registers ownership", async function () {
     const { user, registry, account } = await deployFixture();
     expect(await account.owner()).to.equal(user.address);
@@ -76,6 +103,42 @@ describe("Mantle-native Sovereign Account layer", function () {
     await expect(account.connect(agent).withdraw(await token.getAddress(), 1n)).to.be.revertedWith("not owner");
   });
 
+  it("allows native MNT-style deposits, withdrawals, and emergency exits", async function () {
+    const { user, agent, account } = await deployFixture();
+    const amount = ethers.parseEther("1.5");
+    const accountAddress = await account.getAddress();
+
+    await expect(account.connect(agent).depositNative({ value: amount })).to.be.revertedWith("not owner");
+    await expect(account.connect(user).depositNative({ value: amount }))
+      .to.emit(account, "SovereignDeposited")
+      .withArgs(ethers.ZeroAddress, amount);
+    expect(await account.balances(ethers.ZeroAddress)).to.equal(amount);
+    expect(await ethers.provider.getBalance(accountAddress)).to.equal(amount);
+
+    const withdrawAmount = ethers.parseEther("0.4");
+    await expect(account.connect(agent).withdraw(ethers.ZeroAddress, withdrawAmount)).to.be.revertedWith("not owner");
+    await expect(account.connect(user).withdraw(ethers.ZeroAddress, withdrawAmount))
+      .to.emit(account, "SovereignWithdrawn")
+      .withArgs(ethers.ZeroAddress, withdrawAmount, user.address);
+    expect(await account.balances(ethers.ZeroAddress)).to.equal(amount - withdrawAmount);
+
+    await expect(account.connect(user).emergencyExit(ethers.ZeroAddress))
+      .to.emit(account, "EmergencyExit")
+      .withArgs(ethers.ZeroAddress, amount - withdrawAmount, user.address);
+    expect(await account.balances(ethers.ZeroAddress)).to.equal(0n);
+    expect(await ethers.provider.getBalance(accountAddress)).to.equal(0n);
+  });
+
+  it("rotates the default policy validator when account ownership transfers", async function () {
+    const { user, outsider, account } = await deployFixture();
+    expect(await account.policyValidator()).to.equal(user.address);
+    await expect(account.connect(user).transferOwnership(outsider.address))
+      .to.emit(account, "PolicyValidatorSet")
+      .withArgs(user.address, outsider.address);
+    expect(await account.owner()).to.equal(outsider.address);
+    expect(await account.policyValidator()).to.equal(outsider.address);
+  });
+
   it("enforces revocable agent permissions, adapter allowlists, receivers, and risk limits", async function () {
     const { user, agent, outsider, token, account, mantleYield, ethereumYield } = await deployFixture();
     const amount = ethers.parseUnits("500", 18);
@@ -86,18 +149,27 @@ describe("Mantle-native Sovereign Account layer", function () {
     await expect(account.connect(agent).execute(await mantleYield.getAddress(), goodData)).to.be.revertedWith("not approved");
 
     await (await account.connect(user).approveAgent(agent.address)).wait();
-    await expect(account.connect(agent).execute(await mantleYield.getAddress(), goodData)).to.emit(account, "SovereignExecution");
+    await expect(account.connect(agent).execute(await mantleYield.getAddress(), goodData)).to.be.revertedWith("not approved");
+    const goodProof = await policyProof(account, user, agent, await mantleYield.getAddress(), goodData, "lp-opened");
+    await expect(account.connect(agent).executeWithProof(await mantleYield.getAddress(), goodData, goodProof))
+      .to.emit(account, "PolicyProofConsumed")
+      .and.to.emit(account, "SovereignExecution");
+    await expect(account.connect(agent).executeWithProof(await mantleYield.getAddress(), goodData, goodProof)).to.be.revertedWith("policy already used");
 
     const badReceiver = adapterCall(mantleYield, 5000, await token.getAddress(), ethers.parseUnits("10", 18), outsider.address, 50, ethers.id("steal"));
-    await expect(account.connect(agent).execute(await mantleYield.getAddress(), badReceiver)).to.be.revertedWith("unauthorized receiver");
+    const badReceiverProof = await policyProof(account, user, agent, await mantleYield.getAddress(), badReceiver, "bad-receiver");
+    await expect(account.connect(agent).executeWithProof(await mantleYield.getAddress(), badReceiver, badReceiverProof)).to.be.revertedWith("unauthorized receiver");
 
-    await expect(account.connect(agent).execute(await ethereumYield.getAddress(), goodData)).to.be.revertedWith("adapter not allowed");
+    const badAdapterProof = await policyProof(account, user, agent, await ethereumYield.getAddress(), goodData, "bad-adapter");
+    await expect(account.connect(agent).executeWithProof(await ethereumYield.getAddress(), goodData, badAdapterProof)).to.be.revertedWith("adapter not allowed");
 
     const tooLarge = adapterCall(mantleYield, 5000, await token.getAddress(), ethers.parseUnits("2000", 18), await account.getAddress(), 50, ethers.id("too_large"));
-    await expect(account.connect(agent).execute(await mantleYield.getAddress(), tooLarge)).to.be.revertedWith("allocation exceeded");
+    const tooLargeProof = await policyProof(account, user, agent, await mantleYield.getAddress(), tooLarge, "too-large");
+    await expect(account.connect(agent).executeWithProof(await mantleYield.getAddress(), tooLarge, tooLargeProof)).to.be.revertedWith("allocation exceeded");
 
     await (await account.connect(user).revokeAgent(agent.address)).wait();
-    await expect(account.connect(agent).execute(await mantleYield.getAddress(), goodData)).to.be.revertedWith("not approved");
+    const revokedProof = await policyProof(account, user, agent, await mantleYield.getAddress(), goodData, "revoked");
+    await expect(account.connect(agent).executeWithProof(await mantleYield.getAddress(), goodData, revokedProof)).to.be.revertedWith("not approved");
   });
 
   it("limits temporary session execution rights by adapter, chain, and quota", async function () {
@@ -109,8 +181,11 @@ describe("Mantle-native Sovereign Account layer", function () {
     await (await account.connect(user).grantSessionKey(sessionKey, sessionExecutor.address, await mantleYield.getAddress(), 5000, 3600, 1)).wait();
 
     const data = adapterCall(mantleYield, 5000, await token.getAddress(), ethers.parseUnits("50", 18), await account.getAddress(), 50, ethers.id("session_execute"));
-    await expect(account.connect(sessionExecutor).executeWithSession(await mantleYield.getAddress(), data, sessionKey)).to.emit(account, "SovereignExecution");
     await expect(account.connect(sessionExecutor).executeWithSession(await mantleYield.getAddress(), data, sessionKey)).to.be.revertedWith("not approved");
+    const firstProof = await policyProof(account, user, sessionExecutor, await mantleYield.getAddress(), data, "session-execute");
+    await expect(account.connect(sessionExecutor).executeWithSessionProof(await mantleYield.getAddress(), data, sessionKey, firstProof)).to.emit(account, "SovereignExecution");
+    const secondProof = await policyProof(account, user, sessionExecutor, await mantleYield.getAddress(), data, "session-execute-replay");
+    await expect(account.connect(sessionExecutor).executeWithSessionProof(await mantleYield.getAddress(), data, sessionKey, secondProof)).to.be.revertedWith("not approved");
   });
 
   it("creates and validates cross-chain intents from the Sovereign Account", async function () {
@@ -121,15 +196,36 @@ describe("Mantle-native Sovereign Account layer", function () {
     await (await account.connect(user).approveAgent(agent.address)).wait();
     await (await intentEngine.setExecutor(deployer.address, true)).wait();
 
-    const tx = await account.connect(agent).openCrossChainIntent(
-      await intentEngine.getAddress(),
-      1,
-      await token.getAddress(),
-      ethers.parseUnits("100", 18),
-      ethers.id("eth-yield"),
+    const intent = {
+      intentEngine: await intentEngine.getAddress(),
+      targetChainId: 1,
+      asset: await token.getAddress(),
+      amount: ethers.parseUnits("100", 18),
+      strategyType: ethers.id("eth-yield"),
+      riskConstraints: ethers.id("moderate-risk"),
+      proofURI: "0g://proof/intent",
+    };
+    await expect(account.connect(agent).openCrossChainIntent(
+      intent.intentEngine,
+      intent.targetChainId,
+      intent.asset,
+      intent.amount,
+      intent.strategyType,
       await mantleYield.getAddress(),
-      ethers.id("moderate-risk"),
-      "0g://proof/intent",
+      intent.riskConstraints,
+      intent.proofURI,
+    )).to.be.revertedWith("policy proof required");
+    const intentProof = await intentPolicyProof(account, user, agent, await mantleYield.getAddress(), intent, "cross-chain-intent");
+    const tx = await account.connect(agent).openCrossChainIntentWithProof(
+      intent.intentEngine,
+      intent.targetChainId,
+      intent.asset,
+      intent.amount,
+      intent.strategyType,
+      await mantleYield.getAddress(),
+      intent.riskConstraints,
+      intent.proofURI,
+      intentProof,
     );
     const receipt = await tx.wait();
     const event = receipt.logs.map((log) => {
@@ -150,9 +246,9 @@ describe("Mantle-native Sovereign Account layer", function () {
 
     await expect(intentEngine.markExecuted(intentId, "0g://proof/executed", ethers.id("validation")))
       .to.emit(intentEngine, "IntentStatusUpdated");
-    const intent = await intentEngine.intents(intentId);
-    expect(intent.intentStatus).to.equal(1n);
-    expect(intent.proofURI).to.equal("0g://proof/executed");
+    const storedIntent = await intentEngine.intents(intentId);
+    expect(storedIntent.intentStatus).to.equal(1n);
+    expect(storedIntent.proofURI).to.equal("0g://proof/executed");
   });
 
   it("supports bridge fallback and mock 0G proof generation in the cross-chain demo service", async function () {

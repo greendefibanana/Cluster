@@ -4,9 +4,20 @@ import { WalletAuthService } from "../gateway/auth.js";
 import { CrossChainIntentEngineService } from "../gateway/crosschain/intentEngine.js";
 import { MockBridgeAdapter } from "../gateway/crosschain/bridgeAdapters.js";
 import { createIntelligenceRouter } from "../gateway/intelligence/router.js";
-import { MemoryIntelligenceStore } from "../gateway/intelligence/store.js";
+import { JsonIntelligenceStore, MemoryIntelligenceStore } from "../gateway/intelligence/store.js";
+import { createByokProvider } from "../gateway/intelligence/providers/index.js";
 import { MockProvider } from "../gateway/intelligence/providers/mockProvider.js";
 import { MockZeroGProvider } from "../gateway/zeroGProvider.js";
+import { createZeroGStorageProvider } from "../gateway/zeroG/storageProvider.js";
+import { MockZeroGDAProvider } from "../gateway/zeroG/daProvider.js";
+import {
+  assertAllowedProvider,
+  assertAllowedTaskType,
+  assertByokCredentialInput,
+  assertManagedModeAllowed,
+  createRateLimiter,
+  publicError,
+} from "../gateway/security.js";
 
 describe("Gateway production guardrails", function () {
   const oldEnv = { ...process.env };
@@ -40,7 +51,11 @@ describe("Gateway production guardrails", function () {
 
   it("blocks mock bridge construction in production", function () {
     process.env.NODE_ENV = "production";
-    expect(() => new CrossChainIntentEngineService({ bridge: new MockBridgeAdapter() }))
+    expect(() => new CrossChainIntentEngineService({
+      zeroGStorage: new MockZeroGProvider({ namespace: "bridge-guard-test" }),
+      zeroGDA: new MockZeroGDAProvider({ namespace: "bridge-guard-test" }),
+      bridge: new MockBridgeAdapter(),
+    }))
       .to.throw("MockBridgeAdapter is disabled in production");
   });
 
@@ -77,5 +92,66 @@ describe("Gateway production guardrails", function () {
       taskType: "agent-execute",
       messages: [{ role: "user", content: "Run." }],
     })).to.be.rejectedWith("Mock intelligence provider is disabled in production");
+  });
+
+  it("blocks direct mock BYOK and mock 0G storage factories in production", function () {
+    process.env.NODE_ENV = "production";
+    expect(() => createByokProvider("mock")).to.throw("Mock BYOK provider is disabled in production");
+    expect(() => createZeroGStorageProvider("mock")).to.throw("Production 0G storage requires ZERO_G_PROVIDER=real");
+  });
+
+  it("rejects unsupported providers, unsupported tasks, and unsafe BYOK input", function () {
+    expect(() => assertAllowedProvider("shadow-router")).to.throw("Unsupported intelligence provider");
+    expect(() => assertAllowedTaskType("withdraw-user-funds")).to.throw("Unsupported intelligence task type");
+    expect(() => assertByokCredentialInput({ provider: "mock", apiKey: "123456789012" })).to.throw("Mock provider");
+    expect(() => assertByokCredentialInput({ provider: "gemini", apiKey: "short" })).to.throw("apiKey is too short");
+    expect(() => assertByokCredentialInput({ provider: "custom-openai", apiKey: "123456789012" })).to.throw("endpointUrl is required");
+  });
+
+  it("fails closed for managed inference and JSON-backed intelligence storage in production", function () {
+    process.env.NODE_ENV = "production";
+    expect(() => assertManagedModeAllowed("MANAGED", { production: true, managedEnabled: false }))
+      .to.throw("Managed intelligence is disabled in production");
+    expect(() => new JsonIntelligenceStore({ encryptionKey: "test-intelligence-encryption-key" }))
+      .to.throw("JsonIntelligenceStore is disabled in production");
+    expect(() => new MemoryIntelligenceStore({ encryptionKey: "test-intelligence-encryption-key" }))
+      .not.to.throw();
+  });
+
+  it("sanitizes production errors while preserving development diagnostics", function () {
+    expect(publicError(new Error("provider key leaked"), { production: true, fallback: "Request failed" }))
+      .to.deep.equal({ error: "Request failed" });
+    expect(publicError(new Error("dev detail"), { production: false }))
+      .to.deep.equal({ error: "dev detail" });
+  });
+
+  it("rate limits repeated requests by key", function () {
+    const limiter = createRateLimiter({ windowMs: 10_000, max: 1, keyPrefix: "test", keyFn: () => "wallet-1" });
+    const req = { ip: "127.0.0.1", socket: { remoteAddress: "127.0.0.1" } };
+    const headers = {};
+    let statusCode = null;
+    let body = null;
+    const res = {
+      setHeader(key, value) {
+        headers[key] = value;
+      },
+      status(code) {
+        statusCode = code;
+        return this;
+      },
+      json(payload) {
+        body = payload;
+        return this;
+      },
+    };
+    let nextCount = 0;
+
+    limiter(req, res, () => { nextCount += 1; });
+    limiter(req, res, () => { nextCount += 1; });
+
+    expect(nextCount).to.equal(1);
+    expect(statusCode).to.equal(429);
+    expect(body).to.deep.equal({ error: "rate limit exceeded" });
+    expect(headers["Retry-After"]).to.equal("10");
   });
 });

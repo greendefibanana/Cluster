@@ -9,6 +9,7 @@ import {
   buildPreviewSvg,
   listFeedEvents,
   shareStrategyToFarcaster,
+  validateFarcasterProductionConfig,
 } from "../gateway/farcaster/service.js";
 
 const command = process.argv[2] || "widgets";
@@ -41,6 +42,11 @@ async function run(name) {
       const issues = [];
       const manifest = buildManifest({ appUrl });
       if (!manifest.miniapp?.homeUrl) issues.push("manifest homeUrl missing");
+      if (!manifest.frame?.homeUrl) issues.push("manifest frame alias missing");
+      if (!/^https:\/\//i.test(appUrl) && args.production) issues.push("production Farcaster app URL must use HTTPS");
+      if (args.production || process.env.FARCASTER_PRODUCTION_VALIDATE === "true") {
+        issues.push(...validateFarcasterProductionConfig({ appUrl }).issues);
+      }
       for (const event of events) {
         const embed = buildMiniAppEmbed(event, { appUrl });
         if (embed.button.title !== "Enter Strategy") issues.push(`${event.feedEventId}: wrong button title`);

@@ -37,10 +37,13 @@ describe("Local validator production-readiness flow", function () {
     await (await seeded.sovereignAccount.connect(signers.user).approveAgent(signers.agent.address)).wait();
     const amount = ethers.parseUnits("25", 18);
     const data = adapterCall(contracts.defiYieldAdapter, Number(deployment.chainId), tokenAddress, amount, seeded.sovereignAccountAddress, 25, ethers.id("permission_test"));
-    await expect(seeded.sovereignAccount.connect(signers.agent).execute(await contracts.defiYieldAdapter.getAddress(), data)).to.emit(seeded.sovereignAccount, "SovereignExecution");
+    await expect(seeded.sovereignAccount.connect(signers.agent).execute(await contracts.defiYieldAdapter.getAddress(), data)).to.be.revertedWith("not approved");
+    const proof = await policyProof(seeded.sovereignAccount, signers.user, signers.agent, await contracts.defiYieldAdapter.getAddress(), data, "local-permission-test");
+    await expect(seeded.sovereignAccount.connect(signers.agent).executeWithProof(await contracts.defiYieldAdapter.getAddress(), data, proof)).to.emit(seeded.sovereignAccount, "SovereignExecution");
 
     await (await seeded.sovereignAccount.connect(signers.user).revokeAgent(signers.agent.address)).wait();
-    await expect(seeded.sovereignAccount.connect(signers.agent).execute(await contracts.defiYieldAdapter.getAddress(), data)).to.be.revertedWith("not approved");
+    const revokedProof = await policyProof(seeded.sovereignAccount, signers.user, signers.agent, await contracts.defiYieldAdapter.getAddress(), data, "local-permission-revoked");
+    await expect(seeded.sovereignAccount.connect(signers.agent).executeWithProof(await contracts.defiYieldAdapter.getAddress(), data, revokedProof)).to.be.revertedWith("not approved");
   });
 
   it("enforces adapter allowlists on the local validator", async function () {
@@ -50,7 +53,8 @@ describe("Local validator production-readiness flow", function () {
     await otherAdapter.waitForDeployment();
     await (await seeded.sovereignAccount.connect(signers.user).approveAgent(signers.agent.address)).wait();
     const data = adapterCall(otherAdapter, Number(deployment.chainId), await contracts.paymentToken.getAddress(), ethers.parseUnits("1", 18), seeded.sovereignAccountAddress, 25, ethers.id("bad_adapter"));
-    await expect(seeded.sovereignAccount.connect(signers.agent).execute(await otherAdapter.getAddress(), data)).to.be.revertedWith("adapter not allowed");
+    const proof = await policyProof(seeded.sovereignAccount, signers.user, signers.agent, await otherAdapter.getAddress(), data, "local-bad-adapter");
+    await expect(seeded.sovereignAccount.connect(signers.agent).executeWithProof(await otherAdapter.getAddress(), data, proof)).to.be.revertedWith("adapter not allowed");
   });
 
   it("stores and reads proof objects through the local 0G provider without network mocks", async function () {
@@ -117,4 +121,23 @@ function adapterCall(adapter, targetChainId, asset, amount, receiver, slippageBp
     [targetChainId, asset, amount, receiver, slippageBps, action],
   );
   return adapter.interface.encodeFunctionData("execute", [payload]);
+}
+
+async function policyProof(account, signer, executor, adapter, data, label = "strategy") {
+  const block = await ethers.provider.getBlock("latest");
+  const strategyId = ethers.id(label);
+  const policyDecisionHash = ethers.id(`${label}:policy-approved`);
+  const proofURI = `0g-local://policy/${label}`;
+  const expiresAt = BigInt(block.timestamp + 3600);
+  const digest = await account.policyApprovalDigest(
+    executor.address || executor,
+    adapter,
+    data,
+    strategyId,
+    policyDecisionHash,
+    proofURI,
+    expiresAt,
+  );
+  const signature = await signer.signMessage(ethers.getBytes(digest));
+  return { strategyId, policyDecisionHash, proofURI, expiresAt, signature };
 }

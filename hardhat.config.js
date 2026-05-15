@@ -4,6 +4,7 @@ import "@nomicfoundation/hardhat-toolbox";
 const PRIVATE_KEY = process.env.DEPLOYER_PRIVATE_KEY;
 const BSC_TESTNET_RPC_URL = process.env.BSC_TESTNET_RPC_URL || "https://data-seed-prebsc-1-s1.bnbchain.org:8545";
 const ZERO_G_TESTNET_RPC_URL = process.env.ZERO_G_TESTNET_RPC_URL || "https://evmrpc-testnet.0g.ai";
+const ZERO_G_MAINNET_RPC_URL = process.env.ZERO_G_MAINNET_RPC_URL || "https://evmrpc.0g.ai";
 const MANTLE_RPC_URL = process.env.MANTLE_RPC_URL || "https://rpc.mantle.xyz";
 const MANTLE_SEPOLIA_RPC_URL = process.env.MANTLE_SEPOLIA_RPC_URL || "https://rpc.sepolia.mantle.xyz";
 
@@ -36,6 +37,11 @@ export default {
     zeroGTestnet: {
       url: ZERO_G_TESTNET_RPC_URL,
       chainId: 16602,
+      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : []
+    },
+    zeroGMainnet: {
+      url: ZERO_G_MAINNET_RPC_URL,
+      chainId: 16661,
       accounts: PRIVATE_KEY ? [PRIVATE_KEY] : []
     },
     mantle: {

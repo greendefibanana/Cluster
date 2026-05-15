@@ -3,7 +3,7 @@ import { createIntelligenceRouter } from "../gateway/intelligence/router.js";
 import { JsonIntelligenceStore } from "../gateway/intelligence/store.js";
 import { createZeroGStorageProvider } from "../gateway/zeroG/storageProvider.js";
 import { createZeroGDAProvider } from "../gateway/zeroG/daProvider.js";
-import { ClusterFiCoordinator, defaultAgents } from "../gateway/openClawCoordinator.js";
+import { ClusterFiCoordinator, createEvmSwarmResolver, defaultAgents } from "../gateway/openClawCoordinator.js";
 
 const command = process.argv[2];
 const args = parseArgs(process.argv.slice(3));
@@ -89,6 +89,13 @@ function coordinator() {
     userId,
     zeroGProvider: createZeroGStorageProvider(process.env.ZERO_G_PROVIDER || "mock"),
     zeroGDAProvider: createZeroGDAProvider(process.env.ZERO_G_DA_PROVIDER || "mock"),
+    swarmResolver: createEvmSwarmResolver({
+      rpcUrl: process.env.GATEWAY_RPC_URL || process.env.MANTLE_RPC_URL,
+      swarmNftAddress: process.env.SWARM_NFT_ADDRESS,
+      agentNftAddress: process.env.AGENT_NFT_ADDRESS,
+      skillManagerAddress: process.env.SKILL_MANAGER_ADDRESS,
+      skillNftAddress: process.env.SKILL_NFT_ADDRESS,
+    }),
   });
 }
 

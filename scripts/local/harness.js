@@ -209,7 +209,7 @@ export async function seedLocalMantle(existing = null) {
   };
 }
 
-export async function runLocalDefiE2E({ mode = process.env.TEST_MODE || "FREE_DATA_REAL_AI", requireRealAI = false } = {}) {
+export async function runLocalDefiE2E({ mode = process.env.TEST_MODE || "MOCK_ONLY", requireRealAI = false } = {}) {
   const fixture = await seedLocalMantle();
   const { contracts, signers, seeded, deployment } = fixture;
   const zeroGStorage = createLocalZeroGProvider();
@@ -234,11 +234,15 @@ export async function runLocalDefiE2E({ mode = process.env.TEST_MODE || "FREE_DA
 
   const strategyId = ethers.id("local-defi-yield");
   const claimHash = ethers.keccak256(ethers.toUtf8Bytes(proof.proofURI));
-  await (await contracts.validationRegistry.submitClaim(claimHash, 0, seeded.agentId, strategyId, "defi-yield-policy-approved", proof.proofURI, signers.validator.address)).wait();
-  await (await contracts.validationRegistry.connect(signers.validator).updateClaimStatus(claimHash, 1)).wait();
-  await (await contracts.reputationRegistry.recordEvent(0, seeded.agentId, strategyId, "policy_safe_defi_strategy", 7, 0, 5000000, proof.proofURI)).wait();
+  const submitClaimTx = await contracts.validationRegistry.submitClaim(claimHash, 0, seeded.agentId, strategyId, "defi-yield-policy-approved", proof.proofURI, signers.validator.address);
+  await submitClaimTx.wait();
+  const validateClaimTx = await contracts.validationRegistry.connect(signers.validator).updateClaimStatus(claimHash, 1);
+  await validateClaimTx.wait();
+  const reputationTx = await contracts.reputationRegistry.recordEvent(0, seeded.agentId, strategyId, "policy_safe_defi_strategy", 7, 0, 5000000, proof.proofURI);
+  await reputationTx.wait();
 
-  await (await seeded.sovereignAccount.connect(signers.user).approveAgent(signers.agent.address)).wait();
+  const approveAgentTx = await seeded.sovereignAccount.connect(signers.user).approveAgent(signers.agent.address);
+  await approveAgentTx.wait();
   const executionAmount = ethers.parseUnits("100", 18);
   const data = adapterCall(
     contracts.defiYieldAdapter,
@@ -249,21 +253,44 @@ export async function runLocalDefiE2E({ mode = process.env.TEST_MODE || "FREE_DA
     50,
     ethers.id("defi_yield_execute"),
   );
-  await (await seeded.sovereignAccount.connect(signers.agent).execute(await contracts.defiYieldAdapter.getAddress(), data)).wait();
-  await (await seeded.sovereignAccount.connect(signers.user).revokeAgent(signers.agent.address)).wait();
+  const executionProof = await policyProof(
+    seeded.sovereignAccount,
+    signers.user,
+    signers.agent,
+    await contracts.defiYieldAdapter.getAddress(),
+    data,
+    proof.proofURI,
+    "local-defi-yield",
+  );
+  const executeTx = await seeded.sovereignAccount.connect(signers.agent).executeWithProof(await contracts.defiYieldAdapter.getAddress(), data, executionProof);
+  await executeTx.wait();
+  const revokeTx = await seeded.sovereignAccount.connect(signers.user).revokeAgent(signers.agent.address);
+  await revokeTx.wait();
 
   let revokedBlocked = false;
   try {
-    await seeded.sovereignAccount.connect(signers.agent).execute(await contracts.defiYieldAdapter.getAddress(), data);
+    const revokedProof = await policyProof(
+      seeded.sovereignAccount,
+      signers.user,
+      signers.agent,
+      await contracts.defiYieldAdapter.getAddress(),
+      data,
+      proof.proofURI,
+      "local-defi-yield-revoked",
+    );
+    await seeded.sovereignAccount.connect(signers.agent).executeWithProof(await contracts.defiYieldAdapter.getAddress(), data, revokedProof);
   } catch {
     revokedBlocked = true;
   }
   if (!revokedBlocked) throw new Error("revoked agent was still able to execute");
 
-  await (await seeded.sovereignAccount.connect(signers.user).pause()).wait();
-  await (await seeded.sovereignAccount.connect(signers.user).resume()).wait();
+  const pauseTx = await seeded.sovereignAccount.connect(signers.user).pause();
+  await pauseTx.wait();
+  const resumeTx = await seeded.sovereignAccount.connect(signers.user).resume();
+  await resumeTx.wait();
   const remaining = await seeded.sovereignAccount.balances(await contracts.paymentToken.getAddress());
-  await (await seeded.sovereignAccount.connect(signers.user).withdraw(await contracts.paymentToken.getAddress(), remaining)).wait();
+  const withdrawTx = await seeded.sovereignAccount.connect(signers.user).withdraw(await contracts.paymentToken.getAddress(), remaining);
+  await withdrawTx.wait();
 
   return {
     mode,
@@ -278,12 +305,23 @@ export async function runLocalDefiE2E({ mode = process.env.TEST_MODE || "FREE_DA
     proofReadback: { type: proofReadback.type, rootHash: proofReadback.rootHash },
     validationClaim: claimHash,
     reputationEvents: (await contracts.reputationRegistry.totalEvents()).toString(),
+    txHashes: {
+      submitClaim: submitClaimTx.hash,
+      validateClaim: validateClaimTx.hash,
+      reputation: reputationTx.hash,
+      approveAgent: approveAgentTx.hash,
+      execute: executeTx.hash,
+      revoke: revokeTx.hash,
+      pause: pauseTx.hash,
+      resume: resumeTx.hash,
+      withdraw: withdrawTx.hash,
+    },
     revokedBlocked,
     finalSovereignBalance: (await seeded.sovereignAccount.balances(await contracts.paymentToken.getAddress())).toString(),
   };
 }
 
-export async function runLocalPredictionE2E({ mode = process.env.TEST_MODE || "FREE_DATA_REAL_AI", requireRealAI = false } = {}) {
+export async function runLocalPredictionE2E({ mode = process.env.TEST_MODE || "MOCK_ONLY", requireRealAI = false } = {}) {
   const fixture = await seedLocalMantle();
   const { contracts, signers, seeded } = fixture;
   const zeroGStorage = createLocalZeroGProvider();
@@ -307,9 +345,12 @@ export async function runLocalPredictionE2E({ mode = process.env.TEST_MODE || "F
   const proof = await uploadPredictionStrategyProof({ strategyId: "local-prediction-thesis", context, strategy, policyDecision }, { zeroGStorage, zeroGDA, publishDA: true });
   const strategyId = ethers.id("local-prediction-thesis");
   const claimHash = ethers.keccak256(ethers.toUtf8Bytes(proof.proofURI));
-  await (await contracts.validationRegistry.submitClaim(claimHash, 0, seeded.agentId, strategyId, "prediction-thesis-policy-approved", proof.proofURI, signers.validator.address)).wait();
-  await (await contracts.validationRegistry.connect(signers.validator).updateClaimStatus(claimHash, 1)).wait();
-  await (await contracts.reputationRegistry.recordEvent(0, seeded.agentId, strategyId, "prediction_thesis_recorded", 4, 0, 0, proof.proofURI)).wait();
+  const submitClaimTx = await contracts.validationRegistry.submitClaim(claimHash, 0, seeded.agentId, strategyId, "prediction-thesis-policy-approved", proof.proofURI, signers.validator.address);
+  await submitClaimTx.wait();
+  const validateClaimTx = await contracts.validationRegistry.connect(signers.validator).updateClaimStatus(claimHash, 1);
+  await validateClaimTx.wait();
+  const reputationTx = await contracts.reputationRegistry.recordEvent(0, seeded.agentId, strategyId, "prediction_thesis_recorded", 4, 0, 0, proof.proofURI);
+  await reputationTx.wait();
   return {
     mode,
     provider: strategy.provider || "unknown",
@@ -320,13 +361,18 @@ export async function runLocalPredictionE2E({ mode = process.env.TEST_MODE || "F
     proofURI: proof.proofURI,
     validationClaim: claimHash,
     reputationEvents: (await contracts.reputationRegistry.totalEvents()).toString(),
+    txHashes: {
+      submitClaim: submitClaimTx.hash,
+      validateClaim: validateClaimTx.hash,
+      reputation: reputationTx.hash,
+    },
   };
 }
 
-export async function runRealAiTest({ mode = process.env.TEST_MODE || "FREE_DATA_REAL_AI" } = {}) {
+export async function runRealAiTest({ mode = process.env.TEST_MODE || "MOCK_ONLY", requireRealAI = false } = {}) {
   const zeroGStorage = createLocalZeroGProvider();
-  const context = await loadDefiContext(mode === "MOCK_ONLY" ? "FREE_DATA_REAL_AI" : mode);
-  const strategy = await inferStrategy({ taskType: "defi-yield-analysis", context, requireRealAI: true });
+  const context = await loadDefiContext(mode);
+  const strategy = await inferStrategy({ taskType: "defi-yield-analysis", context, requireRealAI });
   const validation = validateStrategyOutput(strategy);
   if (!validation.ok) throw new Error(`Real AI output missing fields: ${validation.missing.join(", ")}`);
   const policyDecision = validatePolicy({ context, strategy, permissions: { executionApproved: true, paused: false }, policy: { minTvlUsd: 100_000, minLiquidityUsd: 50_000 } });
@@ -389,7 +435,7 @@ function defaultModelFor(providerName) {
   return process.env.CUSTOM_OPENAI_MODEL || "custom";
 }
 
-async function loadDefiContext(mode) {
+export async function loadDefiContext(mode = process.env.TEST_MODE || "MOCK_ONLY") {
   if (mode === "MOCK_ONLY") {
     return {
       type: "defi",
@@ -412,14 +458,14 @@ async function loadDefiContext(mode) {
   return buildDefiMarketContext({ chain: process.env.LOCAL_DEFI_CHAIN || "Ethereum", asset: process.env.LOCAL_DEFI_ASSET || "USDC", minTvlUsd: 100_000 });
 }
 
-async function loadNewsContext(mode) {
+export async function loadNewsContext(mode = process.env.TEST_MODE || "MOCK_ONLY") {
   if (mode === "MOCK_ONLY") {
     return { query: "bitcoin", items: [{ title: "Local event fixture", url: "local://news", publishedAt: new Date().toISOString(), source: "local" }], sources: ["local-fixture"], riskNotes: [], timestamp: new Date().toISOString() };
   }
   return buildNewsContext({ query: process.env.LOCAL_PREDICTION_QUERY || "bitcoin", rssFeeds: (process.env.LOCAL_RSS_FEEDS || "").split(",").filter(Boolean), limit: 5 });
 }
 
-async function loadPredictionContext(mode, newsItems) {
+export async function loadPredictionContext(mode = process.env.TEST_MODE || "MOCK_ONLY", newsItems = []) {
   if (mode === "MOCK_ONLY") {
     return {
       type: "prediction",
@@ -445,6 +491,24 @@ function adapterCall(adapter, targetChainId, asset, amount, receiver, slippageBp
     [targetChainId, asset, amount, receiver, slippageBps, action],
   );
   return adapter.interface.encodeFunctionData("execute", [payload]);
+}
+
+async function policyProof(account, signer, executor, adapter, data, proofURI, label = "strategy") {
+  const block = await ethers.provider.getBlock("latest");
+  const strategyId = ethers.id(label);
+  const policyDecisionHash = ethers.id(`${label}:policy-approved`);
+  const expiresAt = BigInt(block.timestamp + 3600);
+  const digest = await account.policyApprovalDigest(
+    executor.address || executor,
+    adapter,
+    data,
+    strategyId,
+    policyDecisionHash,
+    proofURI,
+    expiresAt,
+  );
+  const signature = await signer.signMessage(ethers.getBytes(digest));
+  return { strategyId, policyDecisionHash, proofURI, expiresAt, signature };
 }
 
 async function definePublicSkill(skillNFT, skill) {

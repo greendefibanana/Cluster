@@ -84,6 +84,18 @@ async function main() {
     if (process.env.ALLOW_PRODUCTION_MOCKS === "true") {
       fail("ALLOW_PRODUCTION_MOCKS must not be true in production");
     }
+    if (process.env.ZERO_G_PROVIDER !== "real") {
+      fail("ZERO_G_PROVIDER=real is required in production");
+    }
+    if (process.env.MANAGED_INTELLIGENCE_ENABLED === "true") {
+      fail("MANAGED_INTELLIGENCE_ENABLED must not be true for v1 BYOK-first production launch");
+    }
+    if (process.env.ALLOW_JSON_INTELLIGENCE_STORE_IN_PRODUCTION === "true") {
+      fail("ALLOW_JSON_INTELLIGENCE_STORE_IN_PRODUCTION must not be true in production");
+    }
+    if (!process.env.GATEWAY_CORS_ORIGINS && !process.env.FARCASTER_APP_URL && !process.env.NEXT_PUBLIC_APP_URL) {
+      fail("GATEWAY_CORS_ORIGINS, FARCASTER_APP_URL, or NEXT_PUBLIC_APP_URL is required to lock production CORS");
+    }
     if (process.env.DISABLE_CROSSCHAIN_EXECUTION !== "true") {
       fail("DISABLE_CROSSCHAIN_EXECUTION=true is required for guarded launch");
     }
