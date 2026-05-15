@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: clusterfi-gateway
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node gateway/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: GATEWAY_PORT
+        value: 3000
+      - key: GATEWAY_CORS_ORIGINS
+        value: # Set to Vercel URL
+      - key: GATEWAY_AUTH_SECRET
+        value: # Generate a random 32+ char string
+      - key: ADMIN_API_TOKEN
+        value: # Optional: token for admin endpoints
+      - key: ZERO_G_PROVIDER
+        value: real
+      - key: ZERO_G_PRIVATE_KEY
+        value: # Add a funded 0G wallet private key
+      - key: INTELLIGENCE_ENCRYPTION_KEY
+        value: # Generate a random 32+ char string
+      - key: MANTLE_RPC_URL
+        value: https://rpc.mantle.xyz
+      - key: MANTLE_SEPOLIA_RPC_URL
+        value: https://rpc.sepolia.mantle.xyz
+      - key: ZERO_G_TESTNET_RPC_URL
+        value: https://evmrpc-testnet.0g.ai
+      - key: ZERO_G_MAINNET_RPC_URL
+        value: https://evmrpc.0g.ai
+      - key: AGENT_NFT_ADDRESS
+        value: # From deployments/mantleSepolia.json
+      - key: SKILL_NFT_ADDRESS
+        value: # From deployments/mantleSepolia.json

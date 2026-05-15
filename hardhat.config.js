@@ -2,7 +2,6 @@ import "dotenv/config";
 import "@nomicfoundation/hardhat-toolbox";
 
 const PRIVATE_KEY = process.env.DEPLOYER_PRIVATE_KEY;
-const BSC_TESTNET_RPC_URL = process.env.BSC_TESTNET_RPC_URL || "https://data-seed-prebsc-1-s1.bnbchain.org:8545";
 const ZERO_G_TESTNET_RPC_URL = process.env.ZERO_G_TESTNET_RPC_URL || "https://evmrpc-testnet.0g.ai";
 const ZERO_G_MAINNET_RPC_URL = process.env.ZERO_G_MAINNET_RPC_URL || "https://evmrpc.0g.ai";
 const MANTLE_RPC_URL = process.env.MANTLE_RPC_URL || "https://rpc.mantle.xyz";
@@ -27,11 +26,6 @@ export default {
     localMantle: {
       url: "http://127.0.0.1:8545",
       chainId: 5000,
-      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : []
-    },
-    bscTestnet: {
-      url: BSC_TESTNET_RPC_URL,
-      chainId: 97,
       accounts: PRIVATE_KEY ? [PRIVATE_KEY] : []
     },
     zeroGTestnet: {

@@ -39,19 +39,20 @@ import {
 } from "./farcaster/service.js";
 
 /* ---------- startup validation ---------- */
-const gatewayRpcUrl = process.env.GATEWAY_RPC_URL || process.env.MANTLE_RPC_URL || process.env.BSC_TESTNET_RPC_URL;
+const gatewayRpcUrl = process.env.GATEWAY_RPC_URL || process.env.MANTLE_RPC_URL || process.env.MANTLE_SEPOLIA_RPC_URL;
 if (!gatewayRpcUrl) {
   console.error("FATAL: GATEWAY_RPC_URL or MANTLE_RPC_URL is required");
   process.exit(1);
 }
+
 /* ---------- load deployment addresses ---------- */
 let deployment = null;
 try {
-  const deployPath = path.join(process.cwd(), "deployments", "bsc-testnet.json");
+  const deployPath = path.join(process.cwd(), "deployments", "mantleSepolia.json");
   deployment = JSON.parse(fs.readFileSync(deployPath, "utf8"));
   console.log(`Loaded deployment (chain ${deployment.chainId})`);
 } catch {
-  console.warn("WARNING: deployments/bsc-testnet.json not found — deploy contracts first");
+  console.warn("WARNING: deployments/mantleSepolia.json not found — deploy contracts first");
 }
 
 function loadEnvOverrides(...pathsToRead) {
@@ -251,6 +252,17 @@ app.use(["/auth/nonce", "/auth/verify"], sensitiveLimiter);
 app.use("/intelligence", intelligenceLimiter);
 app.use(["/meme/image", "/meme/launch"], aiAssetLimiter);
 app.use(express.json({ limit: process.env.GATEWAY_JSON_LIMIT || "64kb" }));
+
+/* ---------- health check (required by Render) ---------- */
+app.get("/health", (_req, res) => {
+  res.json({
+    ok: true,
+    service: "clusterfi-gateway",
+    env: productionRuntime ? "production" : "development",
+    uptime: Math.floor(process.uptime()),
+    ts: new Date().toISOString(),
+  });
+});
 const intelligenceStore = new JsonIntelligenceStore({
   allowInProduction: isTruthy(readConfig(envOverrides, "ALLOW_JSON_INTELLIGENCE_STORE_IN_PRODUCTION")),
 });
@@ -445,7 +457,7 @@ Return a JSON object with this exact schema:
   "strategySummary": "string (1 sentence summary of your thought process)"
 }
 Be conversational, opinionated, and use appropriate crypto slang.`,
-  default: "You are a Web3 worker agent operating on BSC testnet."
+  default: "You are a Web3 worker agent operating on Mantle Sepolia."
 };
 
 /* ============================================================

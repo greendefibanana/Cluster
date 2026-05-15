@@ -6,6 +6,10 @@
   "scripts": {
     "build": "hardhat compile",
     "test": "hardhat test",
+    "render:check": "node scripts/smoke-render.js",
+    "vercel:check": "node scripts/smoke-vercel.js",
+    "deploy:check": "npm run render:check && npm run vercel:check",
+    "farcaster:prod:validate": "node -e \"const m=require('./Frontend/public/.well-known/farcaster.json'); if(!m.accountAssociation.header||!m.accountAssociation.payload||!m.accountAssociation.signature) {console.error('Missing required Farcaster association fields'); process.exit(1);} else {console.log('Manifest validation passed');}\"",
     "deploy:bsc-testnet": "hardhat run scripts/deploy.js --network bscTestnet",
     "gateway": "node gateway/server.js",
     "master-worker": "node scripts/master-worker.js",

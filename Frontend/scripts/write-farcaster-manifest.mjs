@@ -41,3 +41,14 @@ const missingAssociation = Object.values(accountAssociation).some((value) => !va
 if (process.env.NODE_ENV === "production" && missingAssociation) {
   console.warn("Farcaster manifest generated without accountAssociation. Set FARCASTER_ACCOUNT_ASSOCIATION_* before store submission.");
 }
+
+const replaceHtmlTokens = (filePath) => {
+  if (fs.existsSync(filePath)) {
+    let content = fs.readFileSync(filePath, "utf8");
+    content = content.replace(/__FARCASTER_APP_URL__/g, appUrl);
+    fs.writeFileSync(filePath, content);
+  }
+};
+
+replaceHtmlTokens(path.join(process.cwd(), "index.html"));
+replaceHtmlTokens(path.join(process.cwd(), "dist", "index.html"));
