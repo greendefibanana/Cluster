@@ -1,5 +1,7 @@
 import type { ClusterFiWidgetData, StrategyProof, TxHistoryItem } from '../../lib/farcaster';
 import { formatCompact, formatCurrency, formatPercent } from '../../lib/farcaster';
+import { Link } from 'react-router-dom';
+import { useAppContext } from '../../hooks/useAppContext';
 
 export function MetricsGrid({ data }: { data: ClusterFiWidgetData }) {
   const metrics = [
@@ -63,7 +65,18 @@ export function ProofSection({ proofs }: { proofs: StrategyProof[] }) {
 }
 
 export function SovereignActionPanel({ data }: { data: ClusterFiWidgetData }) {
-  const actions = ['Open Sovereign Account', 'Enter Strategy', 'View Permissions', 'Revoke', 'Exit'];
+  const { wallet, connectWallet, ensureCorrectNetwork } = useAppContext();
+  const needsWallet = wallet.status !== 'connected';
+  const proofUrl = data.strategy.proofURI ? `/proof-viewer?proofURI=${encodeURIComponent(data.strategy.proofURI)}` : '/proof-viewer';
+
+  const enterStrategy = async () => {
+    if (needsWallet) {
+      await connectWallet();
+      return;
+    }
+    await ensureCorrectNetwork();
+  };
+
   return (
     <section className="rounded-lg border border-primary/20 bg-primary/5 p-5">
       <h2 className="font-headline text-lg font-semibold text-on-surface">Sovereign Account Entry</h2>
@@ -71,16 +84,35 @@ export function SovereignActionPanel({ data }: { data: ClusterFiWidgetData }) {
         Feed clicks open details first. Funds stay in user-owned Sovereign Accounts; agents receive limited, revocable permissions only.
       </p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        {actions.map((action, index) => (
-          <button
-            key={action}
-            type="button"
-            className={`min-h-10 rounded-lg px-4 py-2 font-headline text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background ${index === 1 ? 'bg-gradient-primary text-on-primary' : 'border border-outline-variant/20 bg-surface-container-low text-on-surface hover:border-primary/40'}`}
-          >
-            {action}
-          </button>
-        ))}
+        <Link
+          to="/sovereign-accounts"
+          className="inline-flex min-h-10 items-center justify-center rounded-lg border border-outline-variant/20 bg-surface-container-low px-4 py-2 text-center font-headline text-sm text-on-surface hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        >
+          Open Sovereign Account
+        </Link>
+        <button
+          type="button"
+          onClick={enterStrategy}
+          className="min-h-10 rounded-lg bg-gradient-primary px-4 py-2 font-headline text-sm text-on-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        >
+          {needsWallet ? 'Connect to Enter' : 'Enter Strategy'}
+        </button>
+        <Link
+          to="/sovereign-accounts"
+          className="inline-flex min-h-10 items-center justify-center rounded-lg border border-outline-variant/20 bg-surface-container-low px-4 py-2 text-center font-headline text-sm text-on-surface hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        >
+          View Permissions
+        </Link>
+        <Link
+          to={proofUrl}
+          className="inline-flex min-h-10 items-center justify-center rounded-lg border border-outline-variant/20 bg-surface-container-low px-4 py-2 text-center font-headline text-sm text-on-surface hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        >
+          View Proof
+        </Link>
       </div>
+      <p className="mt-3 font-body text-xs text-on-surface-variant">
+        Revoke and exit actions are performed from the Sovereign Account page after wallet confirmation.
+      </p>
       <p className="mt-4 font-label text-xs uppercase tracking-widest text-outline">Strategy: {data.strategy.name}</p>
     </section>
   );

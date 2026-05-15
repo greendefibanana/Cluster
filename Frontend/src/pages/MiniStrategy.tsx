@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { ClusterFiFeedWidget } from '../components/widgets/ClusterFiFeedWidget';
 import { MetricsGrid, ProofSection, SovereignActionPanel, TxHistorySection } from '../components/mini/InfoSections';
 import { demoWidgets, fetchMiniProfile, fetchMiniStrategy, fetchWidgetData, type ClusterFiWidgetData, type StrategyProof, type TxHistoryItem } from '../lib/farcaster';
+import { appEnv } from '../lib/env';
 
 type LoadState = 'loading' | 'ready' | 'error';
 
@@ -30,30 +31,35 @@ export default function MiniStrategy({ mode }: { mode: 'agent' | 'cluster' | 'st
       setError('');
       try {
         let resolvedWidget: ClusterFiWidgetData | null = null;
+        let resolvedTxHistory: TxHistoryItem[] = [];
+        let resolvedProofs: StrategyProof[] = [];
         if ((mode === 'widget' || mode === 'feed') && target.feedEventId) {
           resolvedWidget = await fetchWidgetData(target.feedEventId);
         } else if (target.strategyId) {
           const payload = await fetchMiniStrategy(target.strategyId);
           resolvedWidget = payload.widget;
-          setTxHistory(payload.txHistory);
-          setProofs(payload.proofs);
+          resolvedTxHistory = payload.txHistory;
+          resolvedProofs = payload.proofs;
         } else if (target.agentId) {
           const payload = await fetchMiniProfile('agent', target.agentId);
           resolvedWidget = payload.strategies[0];
           setProfile(payload.agent);
-          setTxHistory(payload.txHistory);
+          resolvedTxHistory = payload.txHistory;
         } else if (target.clusterId) {
           const payload = await fetchMiniProfile('cluster', target.clusterId);
           resolvedWidget = payload.strategies[0];
           setProfile(payload.cluster);
-          setTxHistory(payload.txHistory);
+          resolvedTxHistory = payload.txHistory;
         }
-        resolvedWidget ||= demoWidgets[0];
-        if (!proofs.length) {
-          setProofs([{ proofURI: resolvedWidget.strategy.proofURI, source: '0G', type: 'strategy-proof', timestamp: resolvedWidget.timestamps.updatedAt, validationStatus: resolvedWidget.strategy.validationStatus }]);
+        if (!resolvedWidget && appEnv.demoMode) resolvedWidget = demoWidgets[0];
+        if (!resolvedWidget) throw new Error('Strategy not found');
+        if (!resolvedProofs.length && resolvedWidget.strategy.proofURI) {
+          resolvedProofs = [{ proofURI: resolvedWidget.strategy.proofURI, source: '0G', type: 'strategy-proof', timestamp: resolvedWidget.timestamps.updatedAt, validationStatus: resolvedWidget.strategy.validationStatus }];
         }
         if (!cancelled) {
           setWidget(resolvedWidget);
+          setTxHistory(resolvedTxHistory);
+          setProofs(resolvedProofs);
           setState('ready');
         }
       } catch (caught) {
@@ -65,7 +71,7 @@ export default function MiniStrategy({ mode }: { mode: 'agent' | 'cluster' | 'st
     }
     void load();
     return () => { cancelled = true; };
-  }, [mode, target, proofs.length]);
+  }, [mode, target]);
 
   if (state === 'loading') {
     return (
@@ -114,8 +120,30 @@ export default function MiniStrategy({ mode }: { mode: 'agent' | 'cluster' | 'st
           </div>
         </header>
 
-        <section className="grid gap-6 lg:grid-cols-[minmax(0,600px)_1fr] lg:items-start">
-          <ClusterFiFeedWidget data={widget} />
+        <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+          <div className="rounded-lg border border-outline-variant/20 bg-surface-container-low p-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="font-label text-xs uppercase tracking-widest text-primary">Strategy overview</p>
+                <h2 className="mt-2 font-headline text-2xl font-semibold">{widget.title}</h2>
+                <p className="mt-2 max-w-prose font-body text-sm leading-6 text-on-surface-variant">{widget.subtitle}</p>
+              </div>
+              <span className="inline-flex min-h-10 items-center rounded-lg bg-surface-container-high px-3 py-2 font-label text-xs uppercase text-primary">
+                {widget.strategy.validationStatus}
+              </span>
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <SummaryTile label="TVL" value={widget.metrics.tvl ? `$${widget.metrics.tvl.toLocaleString()}` : 'Pending'} />
+              <SummaryTile label="Alpha Bridge" value={`${widget.metrics.alphaBridge.toFixed(1)}x`} />
+              <SummaryTile label="Risk score" value={`${widget.strategy.riskScore}/100`} />
+            </div>
+            <div className="mt-5 rounded-lg bg-surface-container-lowest p-4">
+              <p className="font-label text-xs uppercase tracking-widest text-on-surface-variant">Policy detail</p>
+              <p className="mt-2 font-body text-sm leading-6 text-on-surface-variant">
+                Protocol {widget.strategy.protocol} on {widget.strategy.chain}. Execution is routed through Sovereign Account permissions, proof validation, adapter allowlists, and revocation controls.
+              </p>
+            </div>
+          </div>
           <SovereignActionPanel data={widget} />
         </section>
 
@@ -127,6 +155,16 @@ export default function MiniStrategy({ mode }: { mode: 'agent' | 'cluster' | 'st
         </section>
 
         <section className="rounded-lg border border-outline-variant/20 bg-surface-container-low p-5">
+          <div className="mb-4">
+            <h2 className="font-headline text-lg font-semibold">Farcaster Feed Preview</h2>
+            <p className="mt-1 font-body text-sm text-on-surface-variant">This is the card users see in the Farcaster feed before opening this full Mini App profile.</p>
+          </div>
+          <div className="max-w-xl">
+            <ClusterFiFeedWidget data={widget} />
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-outline-variant/20 bg-surface-container-low p-5">
           <h2 className="font-headline text-lg font-semibold">Risk & Policy</h2>
           <p className="mt-2 font-body text-sm leading-6 text-on-surface-variant">
             Risk score {widget.strategy.riskScore}/100. Validation status: {widget.strategy.validationStatus}. Protocol: {widget.strategy.protocol}. Chain: {widget.strategy.chain}.
@@ -134,5 +172,14 @@ export default function MiniStrategy({ mode }: { mode: 'agent' | 'cluster' | 'st
         </section>
       </div>
     </main>
+  );
+}
+
+function SummaryTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-outline-variant/20 bg-surface-container-lowest p-4">
+      <p className="font-label text-xs uppercase tracking-wider text-on-surface-variant">{label}</p>
+      <p className="mt-2 font-headline text-xl font-semibold">{value}</p>
+    </div>
   );
 }

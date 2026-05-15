@@ -8,6 +8,7 @@ export default function StrategyDetail() {
   const [searchParams] = useSearchParams();
   const { feed, userStrategyAccounts, wallet, createAndDepositStrategyAccount } = useAppContext();
   const [amount, setAmount] = useState("100");
+  const [asset, setAsset] = useState<"erc20" | "native">("native");
   const [isOpening, setIsOpening] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const strategyId = searchParams.get("strategyId") ?? feed[0]?.strategyId;
@@ -76,6 +77,7 @@ export default function StrategyDetail() {
                     strategyId: post.strategyId,
                     instrumentType: post.instrumentType,
                     amount,
+                    asset,
                     maxSlippageBps: 100,
                   });
                 } catch (error) {
@@ -93,8 +95,27 @@ export default function StrategyDetail() {
 
           <div className="mt-5 max-w-sm">
             <label className="font-label text-xs uppercase tracking-widest text-on-surface-variant" htmlFor="sovereign-account-amount">
-              Initial mUSD deposit
+              Initial {asset === "native" ? "MNT" : "cfUSD"} deposit
             </label>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {[
+                ["native", "MNT"],
+                ["erc20", "cfUSD"],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setAsset(value as "erc20" | "native")}
+                  className={`min-h-9 rounded-lg border px-3 font-headline text-sm ${
+                    asset === value
+                      ? "border-primary bg-primary/15 text-primary"
+                      : "border-outline-variant/20 bg-surface-container-lowest text-on-surface-variant"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <input
               id="sovereign-account-amount"
               value={amount}

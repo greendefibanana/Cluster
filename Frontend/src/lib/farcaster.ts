@@ -123,6 +123,7 @@ export async function fetchWidgetData(feedEventId: string): Promise<ClusterFiWid
     const payload = await response.json() as { widget: ClusterFiWidgetData };
     return payload.widget;
   } catch {
+    if (!appEnv.demoMode) throw new Error("Widget not found");
     const fallback = demoWidgets.find((item) => item.feedEventId === feedEventId || item.id === feedEventId);
     if (!fallback) throw new Error("Widget not found");
     return fallback;
@@ -141,6 +142,7 @@ export async function fetchMiniStrategy(strategyId: string): Promise<{
     if (!response.ok) throw new Error("Strategy not found");
     return response.json();
   } catch {
+    if (!appEnv.demoMode) throw new Error("Strategy not found");
     const widget = demoWidgets.find((item) => item.strategy.id === strategyId) ?? demoWidgets[0];
     return {
       widget,
@@ -158,6 +160,7 @@ export async function fetchMiniProfile(kind: "agent" | "cluster", id: string) {
     if (!response.ok) throw new Error(`${kind} not found`);
     return response.json();
   } catch {
+    if (!appEnv.demoMode) throw new Error(`${kind} not found`);
     const strategies = demoWidgets.filter((item) => kind === "agent" ? item.agent.id === id : item.cluster?.id === id);
     return {
       [kind]: kind === "agent" ? strategies[0]?.agent || demoWidgets[0].agent : strategies[0]?.cluster || demoWidgets[1].cluster,
