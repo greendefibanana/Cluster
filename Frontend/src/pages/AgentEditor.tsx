@@ -257,7 +257,6 @@ export default function AgentEditor() {
           provider,
           model,
           taskType: "agent-execute",
-          fallbackProviders: [],
           messages: [
             {
               role: "system",

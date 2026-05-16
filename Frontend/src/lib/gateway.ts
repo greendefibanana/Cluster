@@ -279,14 +279,16 @@ export async function checkIntelligenceProviderHealth(input: {
 }
 
 export async function runAgentByokInference(input: IntelligenceRunInput) {
+  const { fallbackProviders, ...rest } = input;
+
   const response = await fetch(`${appEnv.gatewayUrl}/intelligence/run`, {
     method: "POST",
     headers: await authedHeaders(input.userId),
     body: JSON.stringify({
       providerMode: "BYOK",
       taskType: input.taskType || "agent-execute",
-      fallbackProviders: input.fallbackProviders ?? [],
-      ...input,
+      ...(fallbackProviders?.length ? { fallbackProviders } : {}),
+      ...rest,
     }),
   });
   if (!response.ok) {
