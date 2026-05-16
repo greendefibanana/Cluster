@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { DynamicContext } from "@dynamic-labs/sdk-react-core";
+import sdk from "@farcaster/frame-sdk";
 import { clustrRepository } from "../lib/data/repository";
 import { appEnv, runtimeMode } from "../lib/env";
 import { supabase } from "../lib/supabase";
@@ -371,17 +372,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
   async function connectWallet(provider?: unknown) {
     setWallet((current) => ({ ...current, status: "connecting", error: null }));
     try {
+      // 1. Inside Farcaster Mini App — use the Frame SDK's injected provider.
+      const isInMiniApp = await sdk.isInMiniApp().catch(() => false);
+      if (isInMiniApp) {
+        const frameProvider = sdk.wallet.ethProvider;
+        const result = await connectInjectedWallet(frameProvider);
+        setWallet({
+          account: result.account,
+          chainId: result.chainId,
+          status: "connected",
+          error: null,
+          providerName: "Farcaster",
+          source: "farcaster",
+        });
+        return;
+      }
+
+      // 2. Dynamic Labs modal (desktop / browser).
       if (!provider && runtimeMode.hasDynamic && dynamic?.setShowAuthFlow) {
         dynamic.setShowAuthFlow(true);
         return;
       }
 
+      // 3. Injected wallet (MetaMask etc.)
       const result = await connectInjectedWallet(provider);
-      
-      // Force a signature to ensure actual wallet communication
-      console.log("Requesting demo signature...");
-      await requestSignature(`Authenticate to Kinetic Vault\nAccount: ${result.account}\nNonce: ${Date.now()}`);
-
       setWallet({
         account: result.account,
         chainId: result.chainId,
