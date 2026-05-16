@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { DynamicContext } from "@dynamic-labs/sdk-react-core";
+import { useConnect } from "wagmi";
 import sdk from "@farcaster/frame-sdk";
 import { clustrRepository } from "../lib/data/repository";
 import { appEnv, runtimeMode } from "../lib/env";
@@ -44,6 +45,14 @@ import { AppContext, type AppContextValue, type WalletState } from "./app-contex
 const initialData = createMockBootstrap();
 const SHARED_SYNC_INTERVAL_MS = 30_000;
 
+function isMobileBrowser(): boolean {
+  if (typeof window === "undefined") return false;
+  return (
+    /Android|iPhone|iPad|iPod|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+    window.matchMedia("(pointer: coarse)").matches
+  );
+}
+
 type DynamicPrimaryWallet = {
   address?: string;
   connector?: { name?: string };
@@ -57,6 +66,7 @@ type DynamicPrimaryWallet = {
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const dynamic = useContext(DynamicContext);
+  const { connect: wagmiConnect, connectors: wagmiConnectors } = useConnect();
   const [data, setData] = useState<AppBootstrap>(initialData);
   const [appStatus, setAppStatus] = useState<LoadStatus>("loading");
   const [appError, setAppError] = useState<string | null>(null);
@@ -388,13 +398,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // 2. Dynamic Labs modal (desktop / browser).
+      // 2. Mobile browser — use WalletConnect directly (Dynamic modal doesn't work on mobile).
+      const wcConnector = wagmiConnectors.find((c) => c.id === "walletConnect");
+      if (!provider && isMobileBrowser() && wcConnector) {
+        wagmiConnect({ connector: wcConnector });
+        return;
+      }
+
+      // 3. Dynamic Labs modal (desktop browser).
       if (!provider && runtimeMode.hasDynamic && dynamic?.setShowAuthFlow) {
         dynamic.setShowAuthFlow(true);
         return;
       }
 
-      // 3. Injected wallet (MetaMask etc.)
+      // 4. Injected wallet (MetaMask extension etc.)
       const result = await connectInjectedWallet(provider);
       setWallet({
         account: result.account,

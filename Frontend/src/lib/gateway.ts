@@ -16,7 +16,7 @@ export interface ByokCredentialInput {
 
 export interface IntelligenceRunInput {
   userId: string;
-  agentId: string;
+  agentId?: string;
   provider: IntelligenceProvider;
   model?: string;
   taskType?: string;
