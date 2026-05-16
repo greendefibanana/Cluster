@@ -1,7 +1,10 @@
 import { farcasterFrame } from "@farcaster/frame-wagmi-connector";
+import { walletConnect } from "wagmi/connectors";
 import { createConfig } from "wagmi";
 import { defineChain, http } from "viem";
 import { appEnv } from "./env";
+
+const walletConnectProjectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || "";
 
 export const clusterFiChain = defineChain({
   id: appEnv.chainId,
@@ -45,7 +48,12 @@ const chains = clusterFiAgentChain.id === clusterFiChain.id ? [clusterFiChain] a
 
 export const wagmiConfig = createConfig({
   chains,
-  connectors: [farcasterFrame()],
+  connectors: [
+    farcasterFrame(),
+    ...(walletConnectProjectId
+      ? [walletConnect({ projectId: walletConnectProjectId, showQrModal: true })]
+      : []),
+  ],
   multiInjectedProviderDiscovery: false,
   transports: {
     [clusterFiChain.id]: http(appEnv.rpcUrl || undefined),

@@ -245,8 +245,8 @@ export default function AgentEditor() {
         if (provider !== "mock" && apiKey.trim()) {
           await handleSaveByok({ rethrow: true });
         }
-        if (provider !== "mock" && !apiKey.trim() && !maskedCredential) {
-          throw new Error("Save a BYOK API key for this provider before chatting with the agent.");
+        if (provider !== "mock" && apiKey.trim().length > 0) {
+          await handleSaveByok({ rethrow: true });
         }
 
         const now = new Date().toISOString();
