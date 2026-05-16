@@ -58,25 +58,36 @@ export default function Agents() {
     }
     setMinting(true);
     try {
+      // ── 1. On-chain mint (the real transaction) ──
       const minted = await mintNewAgent(wallet.account, finalName, finalRole, finalDescription);
+
+      // ── 2. Gateway registration (best-effort: auth + config save) ──
+      // This step failing does NOT undo the on-chain mint.
+      let gatewayWarning: string | null = null;
       if (minted.agentId) {
-        if (selectedSource.needsKey) {
-          await saveByokCredential({
+        try {
+          if (selectedSource.needsKey) {
+            await saveByokCredential({
+              userId: wallet.account,
+              agentId: minted.agentId,
+              provider: intelligenceProvider,
+              apiKey: intelligenceApiKey.trim(),
+              endpointUrl: selectedSource.needsEndpoint ? intelligenceEndpoint.trim() : undefined,
+              metadata: { model: intelligenceModel, source: "mint-agent" },
+            });
+          }
+          await saveAgentIntelligenceConfig({
             userId: wallet.account,
             agentId: minted.agentId,
             provider: intelligenceProvider,
-            apiKey: intelligenceApiKey.trim(),
-            endpointUrl: selectedSource.needsEndpoint ? intelligenceEndpoint.trim() : undefined,
-            metadata: { model: intelligenceModel, source: "mint-agent" },
+            model: intelligenceModel,
           });
+        } catch (gatewayError) {
+          console.warn("Gateway registration failed (non-fatal):", gatewayError);
+          gatewayWarning = `Agent minted on-chain (tx: ${minted.hash?.slice(0, 10)}…) but gateway config could not be saved — you can set this later in Agent Editor.`;
         }
-        await saveAgentIntelligenceConfig({
-          userId: wallet.account,
-          agentId: minted.agentId,
-          provider: intelligenceProvider,
-          model: intelligenceModel,
-        });
       }
+
       setAgentName("");
       setAgentRole("Operative");
       setAgentDescription("Freshly minted operative agent.");
@@ -84,7 +95,10 @@ export default function Agents() {
       setIntelligenceEndpoint("");
       await refreshApp();
       setShowMintToast(false);
-      setMintMessage({ type: "success", text: `${finalName} was minted and linked to ${selectedSource.label} intelligence.` });
+      setMintMessage({
+        type: "success",
+        text: gatewayWarning ?? `${finalName} was minted and linked to ${selectedSource.label} intelligence.`,
+      });
     } catch (error) {
       setMintMessage({ type: "error", text: `Mint failed: ${errorMessage(error)}` });
     } finally {

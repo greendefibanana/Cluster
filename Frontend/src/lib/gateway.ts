@@ -1,5 +1,6 @@
 import { appEnv } from "./env";
 import { createClientId } from "./id";
+import { requestSignature } from "./web3";
 import type { AgentExecutionInput, ExecutionRecord } from "../types/domain";
 
 export type IntelligenceProvider = "mock" | "openai" | "gemini" | "anthropic" | "claude" | "custom-openai";
@@ -24,10 +25,70 @@ export interface IntelligenceRunInput {
   metadata?: Record<string, unknown>;
 }
 
+// ---------- Gateway Auth ----------
+// Cached session tokens per wallet (in-memory, cleared on page reload).
+const sessionCache = new Map<string, { token: string; expiresAt: number }>();
+
+/**
+ * Returns a valid gateway session token for the given wallet address.
+ * Performs the full nonce → sign → verify handshake on first call (or after expiry),
+ * then caches the result for the lifetime of the session.
+ */
+export async function getOrCreateGatewayToken(walletAddress: string): Promise<string> {
+  const now = Date.now();
+  const key = walletAddress.toLowerCase();
+  const cached = sessionCache.get(key);
+  // Treat token as valid if it has more than 60 s left.
+  if (cached && cached.expiresAt > now + 60_000) {
+    return cached.token;
+  }
+
+  // 1. Fetch a one-time nonce from the gateway.
+  const nonceRes = await fetch(`${appEnv.gatewayUrl}/auth/nonce`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ address: walletAddress }),
+  });
+  if (!nonceRes.ok) throw new Error(`Gateway nonce request failed (${nonceRes.status})`);
+  const { message, nonce } = (await nonceRes.json()) as { message: string; nonce: string };
+
+  // 2. Ask the wallet to sign the nonce message (triggers MetaMask popup).
+  const signature = await requestSignature(message);
+
+  // 3. Exchange address + nonce + signature for a session token.
+  const verifyRes = await fetch(`${appEnv.gatewayUrl}/auth/verify`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ address: walletAddress, nonce, signature }),
+  });
+  if (!verifyRes.ok) throw new Error(`Gateway auth verification failed (${verifyRes.status})`);
+  const { token, expiresAt } = (await verifyRes.json()) as { token: string; expiresAt: number };
+
+  sessionCache.set(key, { token, expiresAt });
+  return token;
+}
+
+/** Clears the cached session for a wallet (call on disconnect). */
+export function clearGatewaySession(walletAddress?: string) {
+  if (walletAddress) {
+    sessionCache.delete(walletAddress.toLowerCase());
+  } else {
+    sessionCache.clear();
+  }
+}
+
+/** Returns Authorization + Content-Type headers for protected gateway routes. */
+async function authedHeaders(walletAddress: string): Promise<Record<string, string>> {
+  const token = await getOrCreateGatewayToken(walletAddress);
+  return { "content-type": "application/json", authorization: `Bearer ${token}` };
+}
+
 async function parseGatewayError(response: Response, fallback: string) {
   const payload = (await response.json().catch(() => null)) as { error?: string } | null;
   return new Error(payload?.error || `${fallback} (${response.status})`);
 }
+
+// ---------- Public API ----------
 
 export async function executeAgentDirective(input: AgentExecutionInput & {
   tbaAddress: string;
@@ -36,9 +97,7 @@ export async function executeAgentDirective(input: AgentExecutionInput & {
 }): Promise<ExecutionRecord> {
   const response = await fetch(`${appEnv.gatewayUrl}/agent/execute`, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-    },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({
       tbaAddress: input.tbaAddress,
       message: input.message,
@@ -76,7 +135,7 @@ export async function fetchMemeAlpha(context?: string, keywords?: string[], sign
   const response = await fetch(`${appEnv.gatewayUrl}/meme/scan`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ context, keywords, signals })
+    body: JSON.stringify({ context, keywords, signals }),
   });
   if (!response.ok) throw new Error("Failed to scan for alpha");
   return response.json();
@@ -86,7 +145,7 @@ export async function generateMemeConcept(thesis: any) {
   const response = await fetch(`${appEnv.gatewayUrl}/meme/concept`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ thesis })
+    body: JSON.stringify({ thesis }),
   });
   if (!response.ok) throw new Error("Failed to generate concept");
   return response.json();
@@ -96,7 +155,7 @@ export async function generateMemeImage(prompt: string, name?: string, ticker?: 
   const response = await fetch(`${appEnv.gatewayUrl}/meme/image`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ prompt, name, ticker })
+    body: JSON.stringify({ prompt, name, ticker }),
   });
   if (!response.ok) throw new Error("Failed to generate image");
   return response.json();
@@ -106,7 +165,7 @@ export async function launchMemeToken(name: string, symbol: string, supply?: str
   const response = await fetch(`${appEnv.gatewayUrl}/meme/launch`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name, symbol, supply, seedLiquidity })
+    body: JSON.stringify({ name, symbol, supply, seedLiquidity }),
   });
   if (!response.ok) throw new Error("Failed to launch token");
   return response.json();
@@ -116,7 +175,7 @@ export async function generateFeedPost(agentName: string, roleLabel: string, con
   const response = await fetch(`${appEnv.gatewayUrl}/feed/generate`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ agentName, roleLabel, context })
+    body: JSON.stringify({ agentName, roleLabel, context }),
   });
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -128,7 +187,7 @@ export async function generateFeedPost(agentName: string, roleLabel: string, con
 export async function saveByokCredential(input: ByokCredentialInput) {
   const response = await fetch(`${appEnv.gatewayUrl}/intelligence/credentials`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: await authedHeaders(input.userId),
     body: JSON.stringify(input),
   });
   if (!response.ok) {
@@ -154,24 +213,27 @@ export async function saveAgentIntelligenceConfig(input: {
   provider: IntelligenceProvider;
   model?: string;
 }) {
-  const response = await fetch(`${appEnv.gatewayUrl}/intelligence/agents/${encodeURIComponent(input.agentId)}/config`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      userId: input.userId,
-      mode: "BYOK",
-      primaryProvider: input.provider,
-      model: input.model,
-      allowedTaskTypes: [
-        "agent-execute",
-        "defi-yield-analysis",
-        "defi-risk-review",
-        "prediction-market-thesis",
-        "prediction-market-risk-review",
-        "social-post",
-      ],
-    }),
-  });
+  const response = await fetch(
+    `${appEnv.gatewayUrl}/intelligence/agents/${encodeURIComponent(input.agentId)}/config`,
+    {
+      method: "POST",
+      headers: await authedHeaders(input.userId),
+      body: JSON.stringify({
+        userId: input.userId,
+        mode: "BYOK",
+        primaryProvider: input.provider,
+        model: input.model,
+        allowedTaskTypes: [
+          "agent-execute",
+          "defi-yield-analysis",
+          "defi-risk-review",
+          "prediction-market-thesis",
+          "prediction-market-risk-review",
+          "social-post",
+        ],
+      }),
+    }
+  );
   if (!response.ok) {
     throw await parseGatewayError(response, "Failed to save agent intelligence config");
   }
@@ -184,15 +246,18 @@ export async function checkIntelligenceProviderHealth(input: {
   provider: IntelligenceProvider;
   mode?: "BYOK" | "MANAGED";
 }) {
-  const response = await fetch(`${appEnv.gatewayUrl}/intelligence/providers/${encodeURIComponent(input.provider)}/health`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      userId: input.userId,
-      agentId: input.agentId,
-      mode: input.mode || "BYOK",
-    }),
-  });
+  const response = await fetch(
+    `${appEnv.gatewayUrl}/intelligence/providers/${encodeURIComponent(input.provider)}/health`,
+    {
+      method: "POST",
+      headers: await authedHeaders(input.userId),
+      body: JSON.stringify({
+        userId: input.userId,
+        agentId: input.agentId,
+        mode: input.mode || "BYOK",
+      }),
+    }
+  );
   if (!response.ok) {
     throw await parseGatewayError(response, "Provider health check failed");
   }
@@ -202,7 +267,7 @@ export async function checkIntelligenceProviderHealth(input: {
 export async function runAgentByokInference(input: IntelligenceRunInput) {
   const response = await fetch(`${appEnv.gatewayUrl}/intelligence/run`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: await authedHeaders(input.userId),
     body: JSON.stringify({
       providerMode: "BYOK",
       taskType: input.taskType || "agent-execute",
