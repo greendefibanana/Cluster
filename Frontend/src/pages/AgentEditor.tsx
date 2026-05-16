@@ -164,8 +164,10 @@ export default function AgentEditor() {
           throw new Error("Enter the HTTPS endpoint for this custom provider.");
         }
         if (apiKey.trim()) {
+          const demoAgentId = `wallet-${userId}`;
           const saved = await saveByokCredential({
             userId,
+            agentId: demoAgentId,
             provider,
             apiKey: apiKey.trim(),
             endpointUrl: selectedProvider.needsEndpoint ? endpointUrl.trim() : undefined,
