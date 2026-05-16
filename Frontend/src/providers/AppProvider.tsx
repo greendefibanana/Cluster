@@ -405,8 +405,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // 3. Dynamic Labs modal (desktop browser).
-      if (!provider && runtimeMode.hasDynamic && dynamic?.setShowAuthFlow) {
+      // 3. Dynamic Labs modal — desktop only.
+      // On mobile browser, use WalletConnect because Dynamic modal/deeplinks can silently fail.
+      if (!provider && !isMobileBrowser() && runtimeMode.hasDynamic && dynamic?.setShowAuthFlow) {
         dynamic.setShowAuthFlow(true);
         return;
       }

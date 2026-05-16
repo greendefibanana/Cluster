@@ -180,10 +180,20 @@ export default function Layout() {
             </Link>
           </div>
           <button
-            onClick={wallet.status === "connected" ? disconnectWallet : connectWallet}
+            onClick={() => {
+              if (wallet.status === "connected") {
+                void disconnectWallet();
+              } else {
+                void connectWallet();
+              }
+            }}
             className="px-3 py-2 rounded-lg bg-surface-container-low text-primary font-label text-xs border border-outline-variant/20"
           >
-            {wallet.status === "connected" ? truncateAddress(wallet.account ?? "") : runtimeMode.hasDynamic ? "Dynamic" : "Connect"}
+            {wallet.status === "connected"
+              ? truncateAddress(wallet.account ?? "")
+              : wallet.status === "connecting"
+                ? "Connecting..."
+                : "Connect Wallet"}
           </button>
         </div>
 

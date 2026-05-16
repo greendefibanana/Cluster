@@ -175,16 +175,13 @@ export default function AgentEditor() {
           setApiKey("");
         }
       }
-    try {
-      await saveAgentIntelligenceConfig({
-        userId,
-        agentId: agent.id,
-        provider,
-        model,
-      });
-    } catch (configError) {
-        console.warn("Agent config save skipped; wallet-level BYOK is still saved:", configError);
-    }
+    
+        console.log("Skipping agent config save for demo; wallet-level BYOK is saved.", {
+          selectedAgentId: agent.id,
+          provider,
+          model,
+        });
+    
 
       const health = await checkIntelligenceProviderHealth({
         userId,
