@@ -126,7 +126,7 @@ const userStrategyAccountAbi = parseAbi([
 ]);
 const sovereignAccountAbi = parseAbi([
   "function deposit(address asset, uint256 amount) external",
-  "function depositNative() payable external",
+  "function depositNative() payable",
   "function withdraw(address asset, uint256 amount) external",
   "function emergencyExit(address asset) external",
   "function pause() external",
