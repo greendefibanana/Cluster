@@ -34,11 +34,19 @@ const sessionCache = new Map<string, { token: string; expiresAt: number }>();
  * Performs the full nonce → sign → verify handshake on first call (or after expiry),
  * then caches the result for the lifetime of the session.
  */
+/** Returns true if the string looks like a valid 0x Ethereum address. */
+function isValidEthAddress(value: string): boolean {
+  return /^0x[0-9a-fA-F]{40}$/.test(value);
+}
+
 export async function getOrCreateGatewayToken(walletAddress: string): Promise<string> {
+  if (!isValidEthAddress(walletAddress)) {
+    throw new Error("Connect your wallet before saving credentials.");
+  }
+
   const now = Date.now();
   const key = walletAddress.toLowerCase();
   const cached = sessionCache.get(key);
-  // Treat token as valid if it has more than 60 s left.
   if (cached && cached.expiresAt > now + 60_000) {
     return cached.token;
   }
@@ -49,7 +57,10 @@ export async function getOrCreateGatewayToken(walletAddress: string): Promise<st
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ address: walletAddress }),
   });
-  if (!nonceRes.ok) throw new Error(`Gateway nonce request failed (${nonceRes.status})`);
+  if (!nonceRes.ok) {
+    const body = (await nonceRes.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error || `Gateway nonce request failed (${nonceRes.status})`);
+  }
   const { message, nonce } = (await nonceRes.json()) as { message: string; nonce: string };
 
   // 2. Ask the wallet to sign the nonce message (triggers MetaMask popup).
@@ -61,7 +72,10 @@ export async function getOrCreateGatewayToken(walletAddress: string): Promise<st
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ address: walletAddress, nonce, signature }),
   });
-  if (!verifyRes.ok) throw new Error(`Gateway auth verification failed (${verifyRes.status})`);
+  if (!verifyRes.ok) {
+    const body = (await verifyRes.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error || `Gateway auth verification failed (${verifyRes.status})`);
+  }
   const { token, expiresAt } = (await verifyRes.json()) as { token: string; expiresAt: number };
 
   sessionCache.set(key, { token, expiresAt });

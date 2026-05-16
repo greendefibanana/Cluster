@@ -103,19 +103,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       try {
         const [network, walletClient] = await Promise.all([
           primaryWallet.getNetwork?.().catch(() => dynamic.network),
-          primaryWallet.getWalletClient?.(String(appEnv.chainId)),
+          primaryWallet.getWalletClient?.(String(appEnv.chainId)).catch(() => null),
         ]);
 
-        if (!walletClient) {
-          throw new Error("Dynamic wallet client is not available yet");
-        }
+        if (cancelled) return;
 
-        if (cancelled) {
-          return;
-        }
-
+        // Register the session immediately — signMessage works even without walletClient.
+        // walletClient is only needed for writeContract; we pass it if available.
         setDynamicWalletSession({
-          walletClient,
+          walletClient: walletClient ?? { writeContract: async () => { throw new Error("Wallet client not ready"); } },
           signMessage: (message) => primaryWallet.signMessage(message),
           switchNetwork: (chainId) => primaryWallet.switchNetwork(chainId),
         });
@@ -131,11 +127,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
       } catch (error) {
         if (!cancelled) {
+          // Even on error, if we have an address set the account so auth still works.
           setWallet((current) => ({
             ...current,
-            status: "error",
-            error: error instanceof Error ? error.message : "Dynamic wallet sync failed",
-            providerName: current.providerName ?? "Dynamic",
+            account: primaryWallet.address ?? current.account,
+            status: primaryWallet.address ? "connected" : "error",
+            error: primaryWallet.address ? null : (error instanceof Error ? error.message : "Dynamic wallet sync failed"),
+            providerName: primaryWallet.connector?.name ?? current.providerName ?? "Dynamic",
             source: "dynamic",
           }));
         }

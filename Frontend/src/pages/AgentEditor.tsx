@@ -147,6 +147,11 @@ export default function AgentEditor() {
 
   async function handleSaveByok(options: { rethrow?: boolean } = {}) {
     if (!agent) return;
+    if (!wallet.account) {
+      setByokStatus({ type: "error", text: "Connect your wallet first to save credentials." });
+      if (options.rethrow) throw new Error("No wallet connected");
+      return;
+    }
 
     setPending(true);
     setByokStatus({ type: "idle", text: "Saving provider configuration..." });

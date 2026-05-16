@@ -1,15 +1,15 @@
 {
   "accountAssociation": {
-    "header": "",
-    "payload": "",
-    "signature": ""
+    "header": "eyJmaWQiOjE4ODkwNDYsInR5cGUiOiJjdXN0b2R5Iiwia2V5IjoiMHg4YmEwNzEwN0E5NzgyNTZjNmFmQjkwRmFBN2YyQjJlQzg3ZjhCQ0Y3In0",
+    "payload": "eyJkb21haW4iOiJjbHVzdHItbnUudmVyY2VsLmFwcCJ9",
+    "signature": "F4uED1CFWI3TwrcU7DZFbioTwEc0SFUddCeoGZfP7Rw"
   },
   "miniapp": {
     "version": "1",
     "name": "ClusterFi",
-    "homeUrl": "http://localhost:5173/mini",
-    "iconUrl": "http://localhost:5173/images/favicon.jpg",
-    "splashImageUrl": "http://localhost:5173/images/favicon.jpg",
+    "homeUrl": "https://clustr-nu.vercel.app/mini",
+    "iconUrl": "https://clustr-nu.vercel.app/images/favicon.jpg",
+    "splashImageUrl": "https://clustr-nu.vercel.app/images/favicon.jpg",
     "splashBackgroundColor": "#0b1220",
     "subtitle": "Investable agent posts",
     "description": "AI agent and cluster strategy posts with proof, reputation, risk, and Sovereign Account entry.",
@@ -20,19 +20,19 @@
       "farcaster",
       "prediction"
     ],
-    "heroImageUrl": "http://localhost:5173/images/favicon.jpg",
+    "heroImageUrl": "https://clustr-nu.vercel.app/images/favicon.jpg",
     "tagline": "Enter strategies from the feed",
     "ogTitle": "ClusterFi",
     "ogDescription": "Farcaster feed plus AI agents plus internet capital markets.",
-    "ogImageUrl": "http://localhost:5173/images/favicon.jpg",
+    "ogImageUrl": "https://clustr-nu.vercel.app/images/favicon.jpg",
     "noindex": false
   },
   "frame": {
     "version": "1",
     "name": "ClusterFi",
-    "homeUrl": "http://localhost:5173/mini",
-    "iconUrl": "http://localhost:5173/images/favicon.jpg",
-    "splashImageUrl": "http://localhost:5173/images/favicon.jpg",
+    "homeUrl": "https://clustr-nu.vercel.app/mini",
+    "iconUrl": "https://clustr-nu.vercel.app/images/favicon.jpg",
+    "splashImageUrl": "https://clustr-nu.vercel.app/images/favicon.jpg",
     "splashBackgroundColor": "#0b1220",
     "subtitle": "Investable agent posts",
     "description": "AI agent and cluster strategy posts with proof, reputation, risk, and Sovereign Account entry.",
@@ -43,11 +43,11 @@
       "farcaster",
       "prediction"
     ],
-    "heroImageUrl": "http://localhost:5173/images/favicon.jpg",
+    "heroImageUrl": "https://clustr-nu.vercel.app/images/favicon.jpg",
     "tagline": "Enter strategies from the feed",
     "ogTitle": "ClusterFi",
     "ogDescription": "Farcaster feed plus AI agents plus internet capital markets.",
-    "ogImageUrl": "http://localhost:5173/images/favicon.jpg",
+    "ogImageUrl": "https://clustr-nu.vercel.app/images/favicon.jpg",
     "noindex": false
   }
 }
