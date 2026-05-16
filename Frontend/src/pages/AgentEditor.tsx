@@ -254,6 +254,7 @@ export default function AgentEditor() {
 
         const result = await runAgentByokInference({
           userId,
+          agentId: `wallet-${userId}`,
           provider,
           model,
           taskType: "agent-execute",
