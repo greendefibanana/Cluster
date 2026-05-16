@@ -56,7 +56,7 @@ export function ClusterFiDynamicProvider({ children }: { children: ReactNode }) 
                   symbol: appEnv.nativeCurrencySymbol,
                 },
                 networkId: appEnv.chainId,
-                rpcUrls: [appEnv.rpcUrl],
+                rpcUrls: [appEnv.rpcUrl || appEnv.mantle.rpcUrl],
                 vanityName: appEnv.chainName,
               },
               ...(appEnv.agentChain.chainId !== appEnv.chainId ? [{
@@ -71,7 +71,7 @@ export function ClusterFiDynamicProvider({ children }: { children: ReactNode }) 
                   symbol: appEnv.agentChain.nativeCurrencySymbol,
                 },
                 networkId: appEnv.agentChain.chainId,
-                rpcUrls: [appEnv.agentChain.rpcUrl || appEnv.rpcUrl],
+                rpcUrls: [appEnv.agentChain.rpcUrl || appEnv.rpcUrl || appEnv.mantle.rpcUrl],
                 vanityName: appEnv.agentChain.chainName,
               }] : [])
             ],
