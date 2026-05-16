@@ -861,7 +861,9 @@ app.post("/intelligence/run", authenticate, async (req, res) => {
   try {
     const userId = enforceUserScope(req, req.body.userId);
     assertAllowedProvider(req.body.provider, providerValidationOptions);
-    assertProviderList(req.body.fallbackProviders, providerValidationOptions);
+    if (req.body.fallbackProviders?.length) {
+      assertProviderList(req.body.fallbackProviders, providerValidationOptions);
+    }
     assertAllowedTaskType(req.body.taskType);
     assertManagedModeAllowed(req.body.providerMode, {
       production: productionRuntime,
@@ -873,8 +875,25 @@ app.post("/intelligence/run", authenticate, async (req, res) => {
     const result = await intelligenceRouter.runAgentInference({ ...req.body, userId });
     return res.json(result);
   } catch (error) {
-    const status = error.message.includes("Insufficient intelligence credits") ? 402 : 400;
-    return sendError(res, error, status, status === 402 ? "Insufficient intelligence credits" : "Intelligence request failed");
+    console.error("INTELLIGENCE_RUN_FAILED", {
+      message: error?.message,
+      stack: error?.stack,
+      body: {
+        ...req.body,
+        messages: Array.isArray(req.body?.messages)
+          ? req.body.messages.map((m) => ({
+              role: m.role,
+              contentLength: String(m.content || "").length,
+            }))
+          : req.body?.messages,
+      },
+    });
+
+    const status = error?.message?.includes("Insufficient intelligence credits") ? 402 : 400;
+
+    return res.status(status).json({
+      error: error?.message || "Intelligence request failed",
+    });
   }
 });
 
