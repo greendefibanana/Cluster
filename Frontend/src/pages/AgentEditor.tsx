@@ -166,27 +166,28 @@ export default function AgentEditor() {
         if (apiKey.trim()) {
           const saved = await saveByokCredential({
             userId,
-            agentId: agent.id,
             provider,
             apiKey: apiKey.trim(),
             endpointUrl: selectedProvider.needsEndpoint ? endpointUrl.trim() : undefined,
-            metadata: { model, source: "agent-editor" },
+            metadata: { model, source: "agent-editor", selectedAgentId: agent.id },
           });
           setMaskedCredential(saved.credential.apiKey);
           setApiKey("");
         }
       }
-
+    try {
       await saveAgentIntelligenceConfig({
         userId,
         agentId: agent.id,
         provider,
         model,
       });
+    } catch (configError) {
+        console.warn("Agent config save skipped; wallet-level BYOK is still saved:", configError);
+    }
 
       const health = await checkIntelligenceProviderHealth({
         userId,
-        agentId: agent.id,
         provider,
         mode: "BYOK",
       });
@@ -238,7 +239,7 @@ export default function AgentEditor() {
           "1000000000000000000000000000",
           false
         );
-        setLaunchResult(res);
+        setLaunchResult(res as unknown as MemeLaunchResult);
         setDraft("");
       } else {
         if (provider !== "mock" && apiKey.trim()) {
@@ -256,7 +257,7 @@ export default function AgentEditor() {
 
         const result = await runAgentByokInference({
           userId,
-          agentId: agent.id,
+          agentId: `wallet-${userId}`,
           provider,
           model,
           taskType: "agent-execute",
@@ -275,6 +276,7 @@ export default function AgentEditor() {
             prompt: trimmed,
             surface: "agent-editor",
             agentName: agent.name,
+            selectedAgentId: agent.id,
           },
         });
         setChatMessages((current) => [
