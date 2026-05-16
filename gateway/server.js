@@ -8,7 +8,7 @@ import { ethers } from "ethers";
 import { createClient } from "@supabase/supabase-js";
 import { WalletAuthService, bearerToken, normalizeAddress } from "./auth.js";
 import { createIntelligenceRouter } from "./intelligence/router.js";
-import { JsonIntelligenceStore } from "./intelligence/store.js";
+import { JsonIntelligenceStore, MemoryIntelligenceStore } from "./intelligence/store.js";
 import {
   assertAllowedProvider,
   assertAllowedTaskType,
@@ -291,9 +291,14 @@ app.get("/health", (_req, res) => {
     ts: new Date().toISOString(),
   });
 });
-const intelligenceStore = new JsonIntelligenceStore({
-  allowInProduction: isTruthy(readConfig(envOverrides, "ALLOW_JSON_INTELLIGENCE_STORE_IN_PRODUCTION")),
-});
+const allowJsonStoreInProd = isTruthy(readConfig(envOverrides, "ALLOW_JSON_INTELLIGENCE_STORE_IN_PRODUCTION"));
+let intelligenceStore;
+if (productionRuntime && !allowJsonStoreInProd) {
+  console.warn("WARNING: ALLOW_JSON_INTELLIGENCE_STORE_IN_PRODUCTION not set — using in-memory intelligence store (state is ephemeral)");
+  intelligenceStore = new MemoryIntelligenceStore();
+} else {
+  intelligenceStore = new JsonIntelligenceStore({ allowInProduction: allowJsonStoreInProd });
+}
 const intelligenceRouter = createIntelligenceRouter({ store: intelligenceStore });
 
 app.get(/^\/mini(?:\/.*)?$/, (req, res, next) => {

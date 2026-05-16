@@ -9,10 +9,16 @@ cache
 test-out.log
 test-output.txt
 test-output2.txt
-deployments/
+# Exclude only transient/secret deployment artifacts, not the manifest JSONs
+deployments/*.key
+deployments/*.pem
+deployments/meme-swarm.json
+deployments/.memory-*.json
 # Frontend specific
 Frontend/node_modules
 Frontend/dist
 Frontend/.env
 Frontend/tsc-errors.txt
 Frontend/tsc-output.txt
+
+.env.render.secrets

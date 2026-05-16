@@ -1,0 +1,112 @@
+{
+  "network": "mantleSepolia",
+  "chainId": 5003,
+  "mantleRole": "Sovereign Accounts, account abstraction permissions, social finance execution",
+  "zeroGRole": "AI inference, memory, validation, proofs, DA traces",
+  "deployedAt": "2026-05-15T10:56:49.698Z",
+  "deployer": "0x06bB5AC88025420a140BDF4440b4AAFc3050dc81",
+  "contracts": {
+    "sovereignAccountRegistry": "0x56430e581275073AD1CA02062aE6136dDA25f509",
+    "sovereignAccountFactory": "0x3de499fBCD4eba17fe7E6F41CA5AeCBB8785f9Af",
+    "crossChainIntentEngine": "0xEfB1b42c25005a0c4999Df105AE131A881E3eC34",
+    "sessionKeyManager": "0xf10070308191da6be38d5567E6967CD92B7275B3",
+    "mantleYieldAdapter": "0x95f0A92f93851059E08553b9aA4856C96542a47A",
+    "ethereumYieldAdapter": "0x93cDdDEb096517E87cC9D58ba32B2CfC6d735301",
+    "solanaMemeAdapter": "0xa2F1Ca6468843E8Ad2F75adB998d820F222502B5",
+    "hyperliquidAdapter": "0xd2544a08d44B30B8B6BC557E1b2c8531168d164a",
+    "bnbLaunchAdapter": "0x1252B61e314c325D6253073Fff65691a4F615Ac9",
+    "predictionMarketAdapter": "0xECB52A9E25937ED71aCdDE7A32fdB75501787f17",
+    "mockBridgeAdapter": null,
+    "acrossBridgeAdapter": "0x448b24941F999C19935f244c7941e1f1371d9FeE",
+    "acrossIntentExecutor": "0xc95129C757176E9B3e864Ad6938F0aE914b0440b",
+    "acrossQuoteService": "0x0804B8A752475B4172Bc10d983e56FEBe60fb6E4",
+    "performanceRank": "0x2851D05aD91443ab0B42E543cEaa4BB1E74456Aa",
+    "paymentToken": "0x7E8EbA61f679f560EA59ba76b13343e2aE55d38a",
+    "accountImplementation": "0xd7a99F62bd695050818a66abEC90CeCebb67C9EC",
+    "identityRegistry": "0x4D8cC8dAF1525b7838BeF69ac9f8BB850FeD34D5",
+    "reputationRegistry": "0x186232Ea6305D201dfE4C3d3144E0E35eD66F8d9",
+    "validationRegistry": "0x964E951557351e829a974456eD4A9179Fea59c93",
+    "agentNFT": "0x3fBD3191f6a7a7537971C1809570E04A8DE14b44",
+    "swarmNFT": "0x7c812cF4491c398F979a16300cb1fd064D743B8C",
+    "clusterNFT": "0x3aa8259AA5b86a55FfdD10F62e4850a0A68a3E4c",
+    "skillNFT": "0x46f303f0e07d288030f28609c977882C80247751",
+    "skillManager": "0x5c2882862C9f077a0D1b63Afd470f94c8173E7FE",
+    "socialFeed": "0x4D9C100Add70dfB02eE4Fb5c3d9eBF62FF1bc611",
+    "tokenFactory": "0x98FB1A1e91033467Dc6e0dDe66f5D4D63c8c57d1",
+    "executionHub": "0x2234F451C29eAA9676468959C22176Ed9c526605",
+    "jobMarket": "0x64E6a82345D5Bf081E41e6fA021Ac5cbeD7aE0bD",
+    "userStrategyAccountFactory": "0x385D6358bB6Ad6C57DA96d241319732dEfB7230F",
+    "erc6551Registry": "0x52132b5e5544c44363185b755Bf20eF744C668bc"
+  },
+  "explorers": {
+    "mantle": "https://explorer.mantle.xyz",
+    "mantleSepolia": "https://explorer.sepolia.mantle.xyz"
+  },
+  "registry": "0x52132b5e5544c44363185b755Bf20eF744C668bc",
+  "skills": [
+    {
+      "id": "1",
+      "name": "Create Meme",
+      "skillType": "execution",
+      "capabilityTag": "CREATE_MEME",
+      "description": "Create and launch meme instruments",
+      "md": ""
+    },
+    {
+      "id": "2",
+      "name": "Deploy LP",
+      "skillType": "defi",
+      "capabilityTag": "DEPLOY_LP",
+      "description": "Deploy LP strategies",
+      "md": ""
+    },
+    {
+      "id": "3",
+      "name": "Run Yield Strategy",
+      "skillType": "defi",
+      "capabilityTag": "RUN_YIELD_STRATEGY",
+      "description": "Execute yield strategies",
+      "md": ""
+    },
+    {
+      "id": "4",
+      "name": "Prediction Market",
+      "skillType": "prediction",
+      "capabilityTag": "OPEN_PREDICTION_MARKET",
+      "description": "Open prediction market instruments",
+      "md": ""
+    },
+    {
+      "id": "5",
+      "name": "Generate Alpha",
+      "skillType": "research",
+      "capabilityTag": "GENERATE_ALPHA",
+      "description": "Generate alpha reports",
+      "md": ""
+    },
+    {
+      "id": "6",
+      "name": "Market Strategy",
+      "skillType": "social",
+      "capabilityTag": "MARKET_STRATEGY",
+      "description": "Create strategy campaign posts",
+      "md": ""
+    },
+    {
+      "id": "7",
+      "name": "Validate PnL",
+      "skillType": "validation",
+      "capabilityTag": "VALIDATE_PNL",
+      "description": "Validate PnL claims and proofs",
+      "md": ""
+    },
+    {
+      "id": "8",
+      "name": "Content Creator",
+      "skillType": "social",
+      "capabilityTag": "creative_content",
+      "description": "Post to social feed",
+      "md": ""
+    }
+  ]
+}
