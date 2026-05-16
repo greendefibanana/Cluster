@@ -34,6 +34,7 @@ export default function Layout() {
 
   return (
     <div className="font-body min-h-screen flex flex-col antialiased selection:bg-primary selection:text-on-primary">
+      {/* Desktop header */}
       <header className="flex justify-between items-center w-full px-6 py-4 max-w-full docked top-0 sticky z-50 bg-[#131314]/80 backdrop-blur-xl border-b border-[#3c494e]/20 shadow-[0_4px_30px_rgba(0,0,0,0.1)] hidden md:flex">
         <div className="flex items-center gap-4">
           <Link
@@ -42,12 +43,6 @@ export default function Layout() {
           >
             <img src="/logotype.svg" alt="Kinetic Vault" className="h-10 w-auto" />
           </Link>
-          <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface-container-low border border-outline-variant/20">
-            <span className="inline-block h-2 w-2 rounded-full bg-secondary animate-pulse" aria-hidden="true" />
-            <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">
-              Mantle Home Chain
-            </span>
-          </div>
         </div>
         <div className="flex items-center gap-6">
           <nav className="flex gap-4 lg:gap-6 font-['Space_Grotesk'] tracking-tight">
@@ -61,7 +56,7 @@ export default function Layout() {
                 Hub <span className="material-symbols-outlined text-sm" aria-hidden="true">keyboard_arrow_down</span>
               </button>
               <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-64 bg-[#1c1b1c] border border-[#3c494e]/20 rounded-lg shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 z-[60] py-2">
-                <div className="px-4 py-1 text-[10px] uppercase tracking-widest text-[#a4e6ff]/40 font-bold text-left">Analytics & Social</div>
+                <div className="px-4 py-1 text-[10px] uppercase tracking-widest text-[#a4e6ff]/40 font-bold text-left">Analytics &amp; Social</div>
                 <Link className="block px-4 py-2 text-sm text-[#e5e2e3]/60 hover:text-[#a4e6ff] hover:bg-white/5 text-left" to="/rankings">Global Rankings</Link>
                 <Link className="block px-4 py-2 text-sm text-[#e5e2e3]/60 hover:text-[#a4e6ff] hover:bg-white/5 text-left" to="/swarm-wars">Swarm Wars</Link>
 
@@ -166,6 +161,7 @@ export default function Layout() {
         </div>
       </header>
 
+      {/* Mobile header */}
       <header className="md:hidden flex flex-col w-full sticky top-0 z-[60] bg-[#131314]/90 backdrop-blur-md border-b border-[#3c494e]/20">
         <div className="flex justify-between items-center px-4 py-4 w-full">
           <div className="flex items-center gap-3">
@@ -202,7 +198,7 @@ export default function Layout() {
 
               <div className="h-px bg-[#3c494e]/20 mb-4"></div>
 
-              <div className="px-4 py-1 text-[10px] uppercase tracking-widest text-[#a4e6ff]/40 font-bold mb-2">Analytics & Social</div>
+              <div className="px-4 py-1 text-[10px] uppercase tracking-widest text-[#a4e6ff]/40 font-bold mb-2">Analytics &amp; Social</div>
               <Link onClick={closeMobileMenu} className="px-4 py-2 text-[#e5e2e3]/60 text-sm" to="/rankings">Global Rankings</Link>
               <Link onClick={closeMobileMenu} className="px-4 py-2 text-[#e5e2e3]/60 text-sm mb-2" to="/swarm-wars">Swarm Wars</Link>
 
