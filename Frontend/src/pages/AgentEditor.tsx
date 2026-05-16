@@ -126,6 +126,7 @@ export default function AgentEditor() {
   const agentHistory = executionHistory.filter((entry) => entry.agentId === agent?.id);
   const selectedProvider = providerOptions.find((item) => item.value === provider) ?? providerOptions[0];
   const userId = wallet.account || agent?.ownerAddress || "local-demo-user";
+  const demoAgentId = `wallet-${userId}`;
 
   const handleSlotClick = (isFull: boolean) => {
     setShowToastType(isFull ? "remove" : "equip");
@@ -164,7 +165,6 @@ export default function AgentEditor() {
           throw new Error("Enter the HTTPS endpoint for this custom provider.");
         }
         if (apiKey.trim()) {
-          const demoAgentId = `wallet-${userId}`;
           const saved = await saveByokCredential({
             userId,
             agentId: demoAgentId,
@@ -180,6 +180,7 @@ export default function AgentEditor() {
     
         console.log("Skipping agent config save for demo; wallet-level BYOK is saved.", {
           selectedAgentId: agent.id,
+          demoAgentId,
           provider,
           model,
         });
@@ -187,6 +188,7 @@ export default function AgentEditor() {
 
       const health = await checkIntelligenceProviderHealth({
         userId,
+        agentId: demoAgentId,
         provider,
         mode: "BYOK",
       });
@@ -256,7 +258,7 @@ export default function AgentEditor() {
 
         const result = await runAgentByokInference({
           userId,
-          agentId: `wallet-${userId}`,
+          agentId: demoAgentId,
           provider,
           model,
           taskType: "agent-execute",
