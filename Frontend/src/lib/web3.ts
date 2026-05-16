@@ -11,7 +11,7 @@ const configuredChain = {
     symbol: appEnv.nativeCurrencySymbol,
   },
   rpcUrls: {
-    default: { http: appEnv.rpcUrl ? [appEnv.rpcUrl] : [appEnv.mantle.rpcUrl] },
+    default: { http: [appEnv.rpcUrl || appEnv.agentChain.rpcUrl || appEnv.mantle.rpcUrl] },
   },
   blockExplorers: {
     default: { name: "Explorer", url: appEnv.explorerBaseUrl },
@@ -37,7 +37,7 @@ const agentChain = {
 export const publicClient = runtimeMode.hasRpc
   ? createPublicClient({
       chain: configuredChain,
-      transport: http(appEnv.rpcUrl),
+      transport: http(appEnv.rpcUrl || appEnv.agentChain.rpcUrl || appEnv.mantle.rpcUrl),
     })
   : null;
 
@@ -372,25 +372,34 @@ async function switchToChain(chain: typeof configuredChain): Promise<void> {
   }
 
   const hexChainId = `0x${chain.id.toString(16)}`;
+  // Ensure we always have a valid HTTPS RPC URL to give MetaMask.
+  const rpcUrl = chain.rpcUrls.default.http.find((u) => u.startsWith("https://"))
+    || chain.rpcUrls.default.http[0];
 
   try {
     await activeProvider.request({
       method: "wallet_switchEthereumChain",
       params: [{ chainId: hexChainId }],
     });
-  } catch {
-    await activeProvider.request({
-      method: "wallet_addEthereumChain",
-      params: [
-        {
-          chainId: hexChainId,
-          chainName: chain.name,
-          nativeCurrency: chain.nativeCurrency,
-          rpcUrls: chain.rpcUrls.default.http,
-          blockExplorerUrls: [chain.blockExplorers.default.url],
-        },
-      ],
-    });
+  } catch (switchErr: any) {
+    // 4902 = chain has not been added to the wallet yet.
+    // Only call wallet_addEthereumChain for that specific error.
+    if (switchErr?.code === 4902 || switchErr?.data?.originalError?.code === 4902) {
+      await activeProvider.request({
+        method: "wallet_addEthereumChain",
+        params: [
+          {
+            chainId: hexChainId,
+            chainName: chain.name,
+            nativeCurrency: chain.nativeCurrency,
+            rpcUrls: [rpcUrl],
+            blockExplorerUrls: [chain.blockExplorers.default.url],
+          },
+        ],
+      });
+    } else {
+      throw switchErr;
+    }
   }
 }
 
