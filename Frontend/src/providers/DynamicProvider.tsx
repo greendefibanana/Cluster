@@ -31,7 +31,7 @@ export function ClusterFiDynamicProvider({ children }: { children: ReactNode }) 
             appEnv.agentChain.chainId === appEnv.chainId
               ? [`eip155:${appEnv.chainId}`]
               : [`eip155:${appEnv.chainId}`, `eip155:${appEnv.agentChain.chainId}`],
-          initialAuthenticationMode: "connect-and-sign",
+          initialAuthenticationMode: "connect-only",
           enableConnectOnlyFallback: true,
           displaySiweStatement: true,
           siweStatement: "Connect your wallet to ClusterFi to manage Sovereign Accounts and agent strategy permissions.",
@@ -42,6 +42,40 @@ export function ClusterFiDynamicProvider({ children }: { children: ReactNode }) 
           privacyPolicyUrl: appEnv.dynamic.privacyPolicyUrl || undefined,
           socialProvidersFilter: (providers) =>
             providers.filter((provider) => provider === "farcaster" || provider === "google"),
+          overrides: {
+            evmNetworks: [
+              {
+                blockExplorerUrls: [appEnv.explorerBaseUrl],
+                chainId: appEnv.chainId,
+                chainName: appEnv.chainName,
+                iconUrls: ["https://app.dynamic.xyz/assets/networks/eth.svg"],
+                name: appEnv.chainName,
+                nativeCurrency: {
+                  decimals: 18,
+                  name: appEnv.nativeCurrencyName,
+                  symbol: appEnv.nativeCurrencySymbol,
+                },
+                networkId: appEnv.chainId,
+                rpcUrls: [appEnv.rpcUrl],
+                vanityName: appEnv.chainName,
+              },
+              ...(appEnv.agentChain.chainId !== appEnv.chainId ? [{
+                blockExplorerUrls: [appEnv.agentChain.explorerBaseUrl],
+                chainId: appEnv.agentChain.chainId,
+                chainName: appEnv.agentChain.chainName,
+                iconUrls: ["https://app.dynamic.xyz/assets/networks/eth.svg"],
+                name: appEnv.agentChain.chainName,
+                nativeCurrency: {
+                  decimals: 18,
+                  name: appEnv.agentChain.nativeCurrencyName,
+                  symbol: appEnv.agentChain.nativeCurrencySymbol,
+                },
+                networkId: appEnv.agentChain.chainId,
+                rpcUrls: [appEnv.agentChain.rpcUrl || appEnv.rpcUrl],
+                vanityName: appEnv.agentChain.chainName,
+              }] : [])
+            ],
+          },
         }}
       >
         <WagmiProvider config={wagmiConfig}>
